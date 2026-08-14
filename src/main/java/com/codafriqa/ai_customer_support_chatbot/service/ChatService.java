@@ -31,6 +31,6 @@ public class ChatService {
 
         Prompt prompt = new Prompt(List.of(systemMessage, userMsg));
 
-        return chatModel.call(prompt).getResult().getOutput().getContent();
+        return chatModel.call(prompt).getResult().getOutput().getText();
     }
 }

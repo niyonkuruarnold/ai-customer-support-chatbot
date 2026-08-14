@@ -49,12 +49,12 @@ public class UserService {
                 .map(this::mapToResponseDto);
     }
 
-    private UserResponseDto mapToResponseDto(User user) {
-        return new UserResponseDto(
-            user.getId(),
-            user.getEmail(),
-            user.getRole(),
-            user.getCreatedAt()
-        );
-    }
+   private UserResponseDto mapToResponseDto(User user) {
+    return new UserResponseDto(
+        user.getId(), 
+        null, // or remove if you update UserResponseDto constructor
+        user.getEmail(), 
+        user.getRole() != null ? user.getRole().name() : null
+    );
+}
 }

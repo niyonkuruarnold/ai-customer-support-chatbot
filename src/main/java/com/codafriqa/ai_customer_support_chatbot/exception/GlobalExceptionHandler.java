@@ -1,6 +1,8 @@
 package com.codafriqa.ai_customer_support_chatbot.exception;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -20,11 +22,19 @@ import java.util.Map;
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
-     * Handle validation errors (e.g., @NotBlank, @Valid annotations)
+     * Handle validation errors (e.g., @NotBlank, @Valid annotations).
+     * Overrides ResponseEntityExceptionHandler.handleMethodArgumentNotValid.
+     * In Spring 6.1 the parent exposes a single annotated dispatcher
+     * (handleException(Exception, ...)) that routes to this protected method,
+     * so this override must NOT declare its own @ExceptionHandler — declaring
+     * one for MethodArgumentNotValidException would make the
+     * ExceptionHandlerMethodResolver throw "Ambiguous @ExceptionHandler".
      */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationException(
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex,
+            HttpHeaders headers,
+            HttpStatusCode status,
             WebRequest request) {
         
         Map<String, Object> response = new HashMap<>();

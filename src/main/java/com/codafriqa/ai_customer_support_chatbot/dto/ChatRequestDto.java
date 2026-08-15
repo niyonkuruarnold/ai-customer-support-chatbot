@@ -12,11 +12,19 @@ public class ChatRequestDto {
     @Size(min = 1, max = 2000, message = "Message must be between 1 and 2000 characters")
     private String message;
 
+    /** Optional: the chat session this message belongs to. Created on first message when absent. */
+    private Long sessionId;
+
     public ChatRequestDto() {
     }
 
     public ChatRequestDto(String message) {
         this.message = message;
+    }
+
+    public ChatRequestDto(String message, Long sessionId) {
+        this.message = message;
+        this.sessionId = sessionId;
     }
 
     public String getMessage() {
@@ -25,5 +33,13 @@ public class ChatRequestDto {
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public Long getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(Long sessionId) {
+        this.sessionId = sessionId;
     }
 }

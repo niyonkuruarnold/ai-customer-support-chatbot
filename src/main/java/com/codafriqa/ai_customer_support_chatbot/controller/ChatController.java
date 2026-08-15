@@ -2,6 +2,7 @@ package com.codafriqa.ai_customer_support_chatbot.controller;
 
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatRequestDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatResponseDto;
+import com.codafriqa.ai_customer_support_chatbot.dto.SessionInfoDto;
 import com.codafriqa.ai_customer_support_chatbot.service.ChatService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -23,17 +24,26 @@ public class ChatController {
     }
 
     /**
-     * Send a chat message and get AI response
-     * @param request ChatRequestDto with validated message field
-     * @return ChatResponseDto with AI response
+     * Send a chat message and get AI response.
+     * The backend persists the message in a session (created on first
+     * message when sessionId is absent) and returns the session id plus
+     * its status so the frontend can continue the conversation.
+     * @param request ChatRequestDto with validated message and optional sessionId
+     * @return ChatResponseDto with AI response, sessionId and session status
      */
     @PostMapping
     public ResponseEntity<ChatResponseDto> sendMessage(@Valid @RequestBody ChatRequestDto request) {
-        String userMessage = request.getMessage();
-        String aiResponse = chatService.generateResponse(userMessage);
-
-        ChatResponseDto response = new ChatResponseDto(aiResponse);
+        ChatResponseDto response = chatService.sendMessage(request.getMessage(), request.getSessionId());
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Fetch session status + transcript (used by the customer frontend to
+     * restore history and pick up agent replies after a handoff)
+     */
+    @GetMapping("/session/{id}")
+    public ResponseEntity<SessionInfoDto> getSession(@PathVariable Long id) {
+        return ResponseEntity.ok(chatService.getSessionInfo(id));
     }
 
     /**

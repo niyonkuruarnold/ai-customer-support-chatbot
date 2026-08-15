@@ -2,6 +2,7 @@ package com.codafriqa.ai_customer_support_chatbot.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
@@ -21,8 +22,12 @@ public class SecurityConfig {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
+            // Agent workspace endpoints use HTTP Basic (agent sign-in in the frontend)
+            .httpBasic(Customizer.withDefaults())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/chat/**").permitAll()
+                // Agent workspace endpoints require authentication (HTTP Basic)
+                .requestMatchers("/api/agent/**", "/api/v1/agent/**").authenticated()
                 .requestMatchers("/api/admin/**").authenticated()
                 .anyRequest().permitAll()
             );

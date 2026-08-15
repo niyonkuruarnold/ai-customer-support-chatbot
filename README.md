@@ -20,6 +20,13 @@ An intelligent customer support chatbot system built with Spring Boot 3.3+, Post
 - Spring AI chat service integration
 - Complete chat message API with AI responses
 
+### Week 5: Human Handoff & Agent Workspace ✅
+- Escalation detection (e.g. "Talk to a human agent") → session/ticket status ESCALATED
+- AI handoff summary (2-3 bullets + sentiment) generated with Spring AI on escalation
+- Chat sessions persisted to PostgreSQL (transcript available to agents)
+- Agent REST endpoints: ticket queue, takeover, reply, internal notes, resolve
+- Vue agent workspace (togglable Agent Mode / `?mode=agent`): ticket list, pinned AI summary, live status banner, internal notes, customer-side handoff banner + polling
+
 ## Architecture Overview
 
 ### Tech Stack
@@ -54,11 +61,21 @@ POST   /api/users/login          - User authentication
 GET    /api/users/{id}           - Get user profile
 ```
 
-**Chat (Week 2 Stubs)**
+**Chat**
 ```
-POST   /api/chat/session         - Create new chat session
-GET    /api/chat/session/{id}    - Get session info
-POST   /api/chat/message         - Send message (RAG response in Week 3)
+POST   /api/chat                 - Send message { message, sessionId? } -> { response, sessionId, status }
+GET    /api/chat/session/{id}    - Session status + transcript (restores history, picks up agent replies)
+GET    /api/chat/health          - Health check
+```
+
+**Agent Workspace (Week 5, requires Basic auth — default admin/admin123)**
+```
+GET    /api/agent/tickets                  - List escalated/open/in-progress tickets
+GET    /api/agent/tickets/{id}             - Ticket detail (transcript + internal notes)
+POST   /api/agent/tickets/{id}/takeover    - Assign ticket to current agent
+POST   /api/agent/tickets/{id}/reply       - Send agent reply { message }
+POST   /api/agent/tickets/{id}/notes       - Add internal note { content }
+POST   /api/agent/tickets/{id}/resolve     - Resolve ticket
 ```
 
 **Health Checks**
@@ -283,6 +300,19 @@ taskkill /PID <PID> /F
 ## License
 
 Proprietary - CODAFRIQA AI
+
+## Human Handoff Flow
+
+1. Customer sends a trigger like *"Talk to a human agent"* in the chat UI.
+2. The backend marks the session ESCALATED, creates/updates the support
+   ticket, and asks Spring AI to summarize the transcript into 2-3 bullet
+   points with a sentiment label (priority is derived from sentiment).
+3. Open **🎧 Agent Workspace** (header toggle, or `http://localhost:5173/?mode=agent`)
+   and sign in with the Spring Security credentials (`admin` / `admin123`).
+4. Pick the escalated ticket, review the pinned AI Handoff Summary, click
+   **Take over**, then reply — replies are saved into the customer's
+   transcript, which the customer chat picks up via polling and shows with
+   a green "connected to a human agent" banner.
 
 ## Next Steps
 

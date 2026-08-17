@@ -14,11 +14,12 @@ An intelligent customer support chatbot system built with Spring Boot 3.3+, Post
 - Basic REST API controllers (User, Chat, Test endpoints)
 - DTO layer for API request/response handling
 
-### Week 3: In Progress 🚀
-- RAG (Retrieval-Augmented Generation) pipeline with OpenAI embeddings
-- Vector similarity search using pgvector
-- Spring AI chat service integration
-- Complete chat message API with AI responses
+### Week 4: Knowledge Base & RAG ✅
+- Document ingestion pipeline: text, Markdown and PDF support documents parsed with Spring AI document readers
+- Token-based chunking with Spring AI `TokenTextSplitter`, embedded and stored in PostgreSQL via the pgvector `VectorStore`
+- Admin knowledge base endpoints: upload, list documents/chunks, delete
+- `ChatService` now retrieves the top-K relevant chunks per message and enriches the prompt (RAG)
+- Vue **Knowledge Base** tab in the Agent Workspace: drag-and-drop upload, paste raw FAQ text, list/index/delete documents
 
 ### Week 5: Human Handoff & Agent Workspace ✅
 - Escalation detection (e.g. "Talk to a human agent") → session/ticket status ESCALATED
@@ -46,10 +47,15 @@ An intelligent customer support chatbot system built with Spring Boot 3.3+, Post
 | `chat_sessions` | Chat context tracking | id, user_id, status, created_at |
 | `chat_messages` | Message history & embeddings | id, session_id, sender, content, embedding |
 | `support_tickets` | Escalated issues | id, user_id, subject, priority, status |
+| `knowledge_documents` | KB documents (RAG) | id, title, source_type, file_name |
+| `knowledge_chunks` | KB chunks mirroring pgvector rows | id, document_id, chunk_index, content |
+| `vector_store` | pgvector embeddings (Spring AI) | id, content, embedding, metadata |
 
 #### Service Layer
 - **UserService:** User authentication and management
-- **ChatService:** (Week 3) RAG-powered chat with vector search
+- **ChatService:** RAG-powered chat — retrieves top-K knowledge base chunks per message and enriches the prompt
+- **KnowledgeBaseService:** (Week 4) Document ingestion pipeline — Spring AI readers (text/Markdown/PDF) → `TokenTextSplitter` chunks → pgvector `VectorStore`; also admin queries/delete + retrieval
+- **EscalationService / AgentService:** (Week 5) Human handoff, AI summary, agent workspace operations
 - **TicketService:** (Future) Support ticket management
 
 #### API Endpoints
@@ -76,6 +82,20 @@ POST   /api/agent/tickets/{id}/takeover    - Assign ticket to current agent
 POST   /api/agent/tickets/{id}/reply       - Send agent reply { message }
 POST   /api/agent/tickets/{id}/notes       - Add internal note { content }
 POST   /api/agent/tickets/{id}/resolve     - Resolve ticket
+```
+
+**Knowledge Base (Week 4, requires Basic auth — default admin/admin123; both `/api/admin` and `/api/v1/admin` work)**
+```
+POST   /api/v1/admin/knowledge-base/upload   - Upload + index a support file (multipart: file, optional title)
+GET    /api/v1/admin/knowledge-base          - List indexed documents (with chunk counts)
+DELETE /api/v1/admin/knowledge-base/{id}     - Remove document + its chunks from the vector store
+
+# Equivalent paths on the documents namespace (used by the Vue KB tab):
+POST   /api/admin/documents/upload           - Upload + index a support file (multipart: file, optional title)
+POST   /api/admin/documents/text             - Index pasted FAQ text { title, content }
+GET    /api/admin/documents                  - List indexed documents (with chunk counts)
+GET    /api/admin/documents/chunks           - List every indexed chunk
+DELETE /api/admin/documents/{id}             - Remove document + its chunks from the vector store
 ```
 
 **Health Checks**
@@ -139,12 +159,50 @@ spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/ai_customer_support_chatb
 spring.datasource.username=postgres
 spring.datasource.password=postgres
 
-# OpenAI (for Week 3 RAG)
-spring.ai.openai.api-key=${OPENAI_API_KEY}
+# OpenAI (for RAG + AI responses)
+spring.ai.openai.api-key=${OPENAI_API_KEY:}
 
 # Server
 server.port=8080
 ```
+
+> **Set the OpenAI key before starting the app.** The property is the
+> placeholder `${OPENAI_API_KEY:}` (empty default), read from the process
+> environment **or a local `.env` file** (via the `spring-dotenv` dependency —
+> real environment variables always win over `.env`). Copy the template and
+> fill it in:
+>
+> ```bash
+> cp .env.example .env      # then edit .env with your real key
+> mvn spring-boot:run
+> ```
+>
+> Or export it in your terminal instead:
+>
+> ```bash
+> # Linux/macOS/Git Bash
+> export OPENAI_API_KEY=sk-...
+> mvn spring-boot:run
+>
+> # Windows (PowerShell)
+> $env:OPENAI_API_KEY = "sk-..."; mvn spring-boot:run
+> ```
+>
+> `.env` is gitignored (only `.env.example` is committed), so secrets never
+> reach git. At startup the app logs `OpenAI API key is configured (N
+> characters)` on success or a clear `OpenAI API key is NOT configured`
+> warning otherwise.
+>
+> **Two config flavors** (pick one in `application.properties`):
+> - `${OPENAI_API_KEY:}` (default) — resolves to empty when the variable is
+>   missing, and Spring AI M6 then **fails fast at boot** with "OpenAI API key
+>   must be set". Use this when a key (`.env` or exported) is always expected.
+> - `${OPENAI_API_KEY}` — the placeholder stays unresolved without a key, the
+>   app boots and degrades gracefully: chat answers with the fallback message
+>   and knowledge base uploads fail with a 400 "Could not generate
+>   embeddings" (rolled back cleanly). The exact failure is logged with its
+>   full stack trace — look for `Caused by: HttpRetryException ... server
+>   authentication` in the app log.
 
 ## Development Workflow
 
@@ -301,6 +359,24 @@ taskkill /PID <PID> /F
 
 Proprietary - CODAFRIQA AI
 
+## Knowledge Base (RAG) Flow
+
+1. Sign in to the **🎧 Agent Workspace** (`admin` / `admin123`) and open the
+   **📚 Knowledge Base** tab.
+2. Drag-and-drop a `.txt`/`.md`/`.pdf` support document or paste raw FAQ text
+   with a title.
+3. The backend parses the source with Spring AI document readers, splits it
+   into ~500-token chunks with `TokenTextSplitter`, embeds each chunk, and
+   stores it in the pgvector `vector_store` table (chunk metadata is tracked
+   in `knowledge_documents` / `knowledge_chunks`).
+4. Each customer message now retrieves the top-K relevant chunks and the
+   prompt is enriched with that context, so the AI answers from the
+   knowledge base (RAG).
+
+> **Note:** embedding generation requires `OPENAI_API_KEY`. Without a key,
+> uploads fail fast with a clear 400 (and roll back cleanly — no partial
+> documents), and the chat gracefully answers without KB context.
+
 ## Human Handoff Flow
 
 1. Customer sends a trigger like *"Talk to a human agent"* in the chat UI.
@@ -316,15 +392,13 @@ Proprietary - CODAFRIQA AI
 
 ## Next Steps
 
-**Week 3 Deliverables:**
-- [ ] Vector embedding generation with OpenAI API
-- [ ] RAG retrieval system with pgvector similarity search
-- [ ] Complete ChatService with AI response generation
 - [ ] Streaming message API
 - [ ] Integration tests with Testcontainers
 - [ ] API documentation (OpenAPI/Swagger)
+- [ ] Multi-document ingestion from external sources (URLs, S3, etc.)
+- [ ] Embedding batching/retry tuning for large PDFs
 
 ---
 
-**Last Updated:** Week 2 Complete (August 2026)  
+**Last Updated:** Week 4 Complete (August 2026)  
 **Maintainer:** CODAFRIQA Development Team

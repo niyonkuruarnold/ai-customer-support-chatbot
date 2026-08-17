@@ -1,0 +1,12 @@
+package com.codafriqa.ai_customer_support_chatbot.repository;
+
+import com.codafriqa.ai_customer_support_chatbot.model.KnowledgeDocument;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocument, Long> {
+    List<KnowledgeDocument> findAllByOrderByCreatedAtDesc();
+}

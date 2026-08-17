@@ -32,19 +32,37 @@ public class ChatService {
             "You've been connected to a human support agent. 🎧 They can see our conversation history " +
             "and will join this chat shortly. Is there anything else you'd like to mention while you wait?";
 
+    /** Base system instruction; the retrieved knowledge base context is appended when available. */
+    private static final String BASE_SYSTEM_INSTRUCTION = """
+            You are a helpful, polite, and efficient AI Customer Support Agent for Code of Africa. 
+            Your primary goal is to answer user inquiries accurately, clearly, and concisely.
+            Always maintain a professional, empathetic tone.
+            If you do not know the answer to a specific question, politely let the user know and offer to connect them with a human support representative. 
+            Do not make up information or make promises regarding pricing or policies unless explicitly stated in your context.
+            """;
+
+    private static final String KNOWLEDGE_SECTION = """
+
+            Relevant knowledge base context (use it to answer accurately when it applies; do not invent facts beyond it):
+
+            """;
+
     private final ChatModel chatModel;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
     private final EscalationService escalationService;
+    private final KnowledgeBaseService knowledgeBaseService;
 
     public ChatService(ChatModel chatModel,
                        ChatSessionRepository sessionRepository,
                        ChatMessageRepository messageRepository,
-                       EscalationService escalationService) {
+                       EscalationService escalationService,
+                       KnowledgeBaseService knowledgeBaseService) {
         this.chatModel = chatModel;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.escalationService = escalationService;
+        this.knowledgeBaseService = knowledgeBaseService;
     }
 
     /**
@@ -91,17 +109,21 @@ public class ChatService {
     }
 
     /**
-     * AI response generation with a graceful fallback when the model is
-     * unavailable (e.g. missing OPENAI_API_KEY) so the chat never 500s.
+     * AI response generation with RAG: the top-K relevant knowledge base
+     * chunks are retrieved for the user's message and appended to the system
+     * prompt. Falls back to a plain (context-free) prompt when retrieval is
+     * unavailable, and to a friendly fallback message when the model itself
+     * cannot be reached (e.g. missing OPENAI_API_KEY).
      */
     private String generateResponse(String userMessage) {
-        String systemInstruction = """
-            You are a helpful, polite, and efficient AI Customer Support Agent for Code of Africa. 
-            Your primary goal is to answer user inquiries accurately, clearly, and concisely.
-            Always maintain a professional, empathetic tone.
-            If you do not know the answer to a specific question, politely let the user know and offer to connect them with a human support representative. 
-            Do not make up information or make promises regarding pricing or policies unless explicitly stated in your context.
-            """;
+        // Retrieval never throws: KnowledgeBaseService.retrieveContext returns ""
+        // when the vector store is unavailable or has nothing relevant.
+        // (Plain concatenation, not String.formatted, so KB text containing '%'
+        // cannot raise an UnknownFormatConversionException outside the try below.)
+        String context = knowledgeBaseService.retrieveContext(userMessage);
+        String systemInstruction = context.isBlank()
+                ? BASE_SYSTEM_INSTRUCTION
+                : BASE_SYSTEM_INSTRUCTION + KNOWLEDGE_SECTION + context;
 
         try {
             Message systemMessage = new SystemPromptTemplate(systemInstruction).createMessage();
@@ -109,7 +131,11 @@ public class ChatService {
             Prompt prompt = new Prompt(List.of(systemMessage, userMsg));
             return chatModel.call(prompt).getResult().getOutput().getText();
         } catch (Exception e) {
-            log.warn("AI response generation failed (is OPENAI_API_KEY set?); returning fallback message", e);
+            // Log the exact failure (class + message + full stack trace via the
+            // throwable argument) so the root cause is visible in the app log,
+            // e.g. a 401 from a missing or invalid OPENAI_API_KEY.
+            log.warn("AI response generation failed ({}: {}); returning fallback message",
+                    e.getClass().getSimpleName(), e.getMessage(), e);
             return "I'm sorry, I'm having trouble processing your request right now. " +
                    "Please try again shortly, or ask to speak with a human support agent.";
         }

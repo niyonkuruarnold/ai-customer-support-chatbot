@@ -46,6 +46,16 @@ in with HTTP Basic credentials (kept in memory, never persisted), lists the
 escalated/open ticket queue, shows the pinned AI handoff summary, and lets
 agents take over, reply, add internal notes, and resolve tickets.
 
+### Knowledge Base (RAG) manager
+
+The workspace has a **📚 Knowledge Base** tab (`src/components/admin/` +
+`src/stores/knowledgeBase.js` + `src/api/admin.js`) for managing the RAG
+corpus. It reuses the same Basic sign-in as the agent workspace (one login
+covers both). From there you can drag-and-drop `.txt`/`.md`/`.pdf` support
+files or paste raw FAQ text, see every indexed document with its chunk
+count, expand a document to preview its chunks, and delete documents (which
+removes their vectors from pgvector too).
+
 ## Testing
 
 Tests run with [Vitest](https://vitest.dev/) + Vue Test Utils in jsdom.
@@ -62,6 +72,11 @@ Coverage:
   retry chip
 - `src/App.spec.js` — submit flow, disabled send button, inline retry, clear
   conversation (two-step confirm)
+- `src/stores/knowledgeBase.spec.js` — fetch documents/chunks, upload,
+  paste-text ingestion, delete, 401/error handling
+- `src/components/admin/KnowledgeBaseManager.spec.js` — drag-and-drop
+  upload, paste form, document list/chunk previews, delete, session-expiry
+  prompt
 
 ## Project structure
 
@@ -69,17 +84,21 @@ Coverage:
 src/
 ├── api/
 │   ├── chat.js              # Axios client (session-aware chat/history/reset)
-│   └── agent.js             # Agent API client (HTTP Basic, 401 handling)
+│   ├── agent.js             # Agent API client (HTTP Basic, 401 handling)
+│   └── admin.js             # Admin API client (knowledge base, shared Basic auth)
 ├── stores/
 │   ├── chat.js              # Customer chat store (session, polling, escalation)
-│   └── agent.js             # Agent workspace store (login, tickets, actions)
+│   ├── agent.js             # Agent workspace store (login, tickets, actions)
+│   └── knowledgeBase.js     # Knowledge base store (documents, chunks, ingestion)
 ├── components/
 │   ├── ChatMessage.vue      # Message bubble (user / assistant / agent roles)
 │   ├── TypingIndicator.vue  # Animated "typing" loading dots
-│   └── agent/
-│       ├── AgentWorkspace.vue      # Workspace shell + login gate
-│       ├── AgentTicketList.vue     # Left panel: ticket queue with badges
-│       └── AgentConversation.vue   # Center panel: summary, transcript, notes, reply
+│   ├── agent/
+│   │   ├── AgentWorkspace.vue      # Workspace shell + login gate + tabs
+│   │   ├── AgentTicketList.vue     # Left panel: ticket queue with badges
+│   │   └── AgentConversation.vue   # Center panel: summary, transcript, notes, reply
+│   └── admin/
+│       └── KnowledgeBaseManager.vue # KB tab: drag-drop, paste text, manage docs
 ├── App.vue                  # Chat layout + Agent Mode toggle (?mode=agent)
 ├── main.js
 └── style.css                # Tailwind entry

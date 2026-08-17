@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import * as agentApi from '../api/agent'
+import * as adminApi from '../api/admin'
 
 /**
  * Agent workspace store.
@@ -35,6 +36,8 @@ export const useAgentStore = defineStore('agent', {
     /** Authenticate with HTTP Basic and load the ticket queue. */
     async login(username, password) {
       agentApi.setAgentAuth(username, password)
+      // The knowledge base manager reuses the same Basic credentials
+      adminApi.setAdminAuth(username, password)
       this.agentName = username
       this.error = null
       await this.fetchTickets({ throwOnError: true })
@@ -43,6 +46,7 @@ export const useAgentStore = defineStore('agent', {
 
     logout() {
       agentApi.clearAgentAuth()
+      adminApi.clearAdminAuth()
       this.authenticated = false
       this.agentName = ''
       this.tickets = []
@@ -146,6 +150,7 @@ export const useAgentStore = defineStore('agent', {
         this.authenticated = false
         this.agentName = ''
         agentApi.clearAgentAuth()
+        adminApi.clearAdminAuth()
       }
     },
   },

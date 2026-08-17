@@ -28,7 +28,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/chat/**").permitAll()
                 // Agent workspace endpoints require authentication (HTTP Basic)
                 .requestMatchers("/api/agent/**", "/api/v1/agent/**").authenticated()
-                .requestMatchers("/api/admin/**").authenticated()
+                .requestMatchers("/api/admin/**", "/api/v1/admin/**").authenticated()
                 .anyRequest().permitAll()
             );
         

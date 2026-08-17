@@ -39,3 +39,8 @@ build/
 application.properties.local
 application-local.properties
 *.log
+
+# Environment variables (secrets — never commit). Keep .env.example tracked.
+.env
+.env.local
+.env.*.local

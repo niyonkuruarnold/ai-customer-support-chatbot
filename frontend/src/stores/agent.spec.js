@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAgentStore } from './agent'
 import * as agentApi from '../api/agent'
+import * as adminApi from '../api/admin'
 
 vi.mock('../api/agent', () => ({
   setAgentAuth: vi.fn(),
@@ -12,6 +13,16 @@ vi.mock('../api/agent', () => ({
   sendAgentReply: vi.fn(),
   addTicketNote: vi.fn(),
   resolveTicket: vi.fn(),
+}))
+
+vi.mock('../api/admin', () => ({
+  setAdminAuth: vi.fn(),
+  clearAdminAuth: vi.fn(),
+  uploadDocument: vi.fn(),
+  addTextDocument: vi.fn(),
+  fetchDocuments: vi.fn(),
+  fetchChunks: vi.fn(),
+  deleteDocument: vi.fn(),
 }))
 
 function ticket(overrides = {}) {
@@ -67,6 +78,8 @@ describe('agent store', () => {
       await store.login('sarah', 'secret')
 
       expect(agentApi.setAgentAuth).toHaveBeenCalledWith('sarah', 'secret')
+      // The knowledge base manager reuses the same Basic credentials
+      expect(adminApi.setAdminAuth).toHaveBeenCalledWith('sarah', 'secret')
       expect(store.authenticated).toBe(true)
       expect(store.agentName).toBe('sarah')
       expect(store.tickets).toHaveLength(1)
@@ -101,6 +114,7 @@ describe('agent store', () => {
 
       expect(store.authenticated).toBe(false)
       expect(agentApi.clearAgentAuth).toHaveBeenCalled()
+      expect(adminApi.clearAdminAuth).toHaveBeenCalled()
     })
   })
 
@@ -197,6 +211,7 @@ describe('agent store', () => {
       expect(store.tickets).toHaveLength(0)
       expect(store.activeTicket).toBeNull()
       expect(agentApi.clearAgentAuth).toHaveBeenCalled()
+      expect(adminApi.clearAdminAuth).toHaveBeenCalled()
     })
   })
 })

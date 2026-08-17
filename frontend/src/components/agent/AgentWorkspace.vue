@@ -3,10 +3,30 @@ import { ref } from 'vue'
 import { useAgentStore } from '../../stores/agent'
 import AgentTicketList from './AgentTicketList.vue'
 import AgentConversation from './AgentConversation.vue'
+import KnowledgeBaseManager from '../admin/KnowledgeBaseManager.vue'
 
 defineEmits(['switch-to-chat'])
 
 const store = useAgentStore()
+
+// Workspace tabs: tickets queue or knowledge base (RAG) manager
+const activeTab = ref('tickets')
+try {
+  if (localStorage.getItem('ai-support-chat:agentTab') === 'knowledge') {
+    activeTab.value = 'knowledge'
+  }
+} catch {
+  // ignore storage errors
+}
+
+function setTab(tab) {
+  activeTab.value = tab
+  try {
+    localStorage.setItem('ai-support-chat:agentTab', tab)
+  } catch {
+    // ignore storage errors
+  }
+}
 
 const username = ref('')
 const password = ref('')
@@ -119,9 +139,51 @@ async function handleLogin() {
     </div>
 
     <!-- Workspace panels -->
-    <div v-else class="flex min-h-0 flex-1">
-      <AgentTicketList class="w-72 shrink-0 border-r border-slate-200 bg-white sm:w-80" />
-      <AgentConversation class="min-w-0 flex-1" />
-    </div>
+    <template v-else>
+      <!-- Tab navigation -->
+      <nav
+        class="flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-4"
+        aria-label="Workspace sections"
+      >
+        <button
+          type="button"
+          @click="setTab('tickets')"
+          class="relative px-3 py-2.5 text-sm font-medium transition"
+          :class="
+            activeTab === 'tickets'
+              ? 'text-indigo-600'
+              : 'text-slate-500 hover:text-slate-700'
+          "
+        >
+          🎧 Tickets
+          <span
+            v-if="activeTab === 'tickets'"
+            class="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-indigo-600"
+          ></span>
+        </button>
+        <button
+          type="button"
+          @click="setTab('knowledge')"
+          class="relative px-3 py-2.5 text-sm font-medium transition"
+          :class="
+            activeTab === 'knowledge'
+              ? 'text-indigo-600'
+              : 'text-slate-500 hover:text-slate-700'
+          "
+        >
+          📚 Knowledge Base
+          <span
+            v-if="activeTab === 'knowledge'"
+            class="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-indigo-600"
+          ></span>
+        </button>
+      </nav>
+
+      <div v-if="activeTab === 'tickets'" class="flex min-h-0 flex-1">
+        <AgentTicketList class="w-72 shrink-0 border-r border-slate-200 bg-white sm:w-80" />
+        <AgentConversation class="min-w-0 flex-1" />
+      </div>
+      <KnowledgeBaseManager v-else class="flex min-h-0 flex-1" />
+    </template>
   </div>
 </template>

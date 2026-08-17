@@ -21,12 +21,22 @@ An intelligent customer support chatbot system built with Spring Boot 3.3+, Post
 - `ChatService` now retrieves the top-K relevant chunks per message and enriches the prompt (RAG)
 - Vue **Knowledge Base** tab in the Agent Workspace: drag-and-drop upload, paste raw FAQ text, list/index/delete documents
 
+### Week 6: Ticket Lifecycle & Email Notifications ✅
+- **Dedicated Knowledge Base Admin page** in the Vue frontend (`?mode=knowledge`): drag-and-drop `.md`/`.txt` upload, indexed-documents table with delete, embedding spinners, and success/error toasts — wired to the spec-exact `/api/v1/admin/knowledge-base/*` endpoints
+
+### Week 6: Ticket Lifecycle & Email Notifications ✅
+- `SupportTicketService` state machine: OPEN -> IN_PROGRESS -> RESOLVED -> CLOSED (ESCALATED accepted for handoff), illegal transitions rejected with a 400
+- Automated email notifications via `JavaMailSender` (Mailtrap-style SMTP) on ticket **opened / updated / resolved** — best-effort, failures logged, never break ticket operations
+- Admin dashboard API: `GET /api/v1/tickets` with `status` / `priority` / `assignedAgentId` filters + pagination/sorting, and `POST /{id}/close`
+
 ### Week 5: Human Handoff & Agent Workspace ✅
 - Escalation detection (e.g. "Talk to a human agent") → session/ticket status ESCALATED
-- AI handoff summary (2-3 bullets + sentiment) generated with Spring AI on escalation
+- AI handoff summary (2-3 bullets + sentiment) generated with Spring AI on escalation; priority derived from sentiment
 - Chat sessions persisted to PostgreSQL (transcript available to agents)
 - Agent REST endpoints: ticket queue, takeover, reply, internal notes, resolve
-- Vue agent workspace (togglable Agent Mode / `?mode=agent`): ticket list, pinned AI summary, live status banner, internal notes, customer-side handoff banner + polling
+- Tickets expose **customer contact details** (email of the backing account — anonymous sessions are resolved to the seeded `customer@codafriqa.local` account on boot)
+- Vue agent workspace (togglable Agent Mode / `?mode=agent`): **live ticket queue** (polled every 5s) with status/priority/sentiment badges + AI summary snippet + contact info, pinned AI summary, real-time conversation view (new customer messages appear without manual refresh), live status banner, internal notes, customer-side handoff banner + polling
+- **AI pause on handoff:** once a session is ESCALATED, the backend stops generating AI answers — customer messages receive a "sent to the agent" acknowledgement and the customer UI switches to an amber **Agent Active** banner ("AI assistant is paused")
 
 ## Architecture Overview
 
@@ -56,7 +66,8 @@ An intelligent customer support chatbot system built with Spring Boot 3.3+, Post
 - **ChatService:** RAG-powered chat — retrieves top-K knowledge base chunks per message and enriches the prompt
 - **KnowledgeBaseService:** (Week 4) Document ingestion pipeline — Spring AI readers (text/Markdown/PDF) → `TokenTextSplitter` chunks → pgvector `VectorStore`; also admin queries/delete + retrieval
 - **EscalationService / AgentService:** (Week 5) Human handoff, AI summary, agent workspace operations
-- **TicketService:** (Future) Support ticket management
+- **SupportTicketService:** (Week 6) Ticket lifecycle state machine (OPEN/IN_PROGRESS/RESOLVED/CLOSED), filtering + pagination for the admin dashboard
+- **EmailNotificationService:** (Week 6) Automated ticket emails (opened/updated/resolved) via JavaMailSender + Mailtrap/SMTP
 
 #### API Endpoints
 
@@ -83,6 +94,18 @@ POST   /api/agent/tickets/{id}/reply       - Send agent reply { message }
 POST   /api/agent/tickets/{id}/notes       - Add internal note { content }
 POST   /api/agent/tickets/{id}/resolve     - Resolve ticket
 ```
+
+**Ticket Lifecycle Dashboard (Week 6, requires Basic auth — default admin/admin123; both `/api/tickets` and `/api/v1/tickets` work)**
+```
+GET    /api/v1/tickets                 - List tickets (filters: status, priority, assignedAgentId; page=0-based, size, sort)
+POST   /api/v1/tickets/{id}/close      - Close a resolved ticket (RESOLVED -> CLOSED)
+
+# Examples
+GET    /api/v1/tickets?status=ESCALATED&priority=HIGH&page=0&size=10&sort=updatedAt,desc
+GET    /api/v1/tickets?assignedAgentId=1
+```
+
+Consumed by the Vue **Ticket Dashboard** (`frontend/src/components/admin/TicketDashboard.vue`, reachable via the 🎫 **Tickets** header button or `http://localhost:5173/?mode=tickets`): status/priority/agent filters, a paginated ticket table with status + priority badges and customer contact details, and a Close action on resolved tickets. Note: `assignedAgentId` resolves through the users table (the stored field is the agent *name*), so unknown ids match nothing.
 
 **Knowledge Base (Week 4, requires Basic auth — default admin/admin123; both `/api/admin` and `/api/v1/admin` work)**
 ```
@@ -203,6 +226,11 @@ server.port=8080
 >   embeddings" (rolled back cleanly). The exact failure is logged with its
 >   full stack trace — look for `Caused by: HttpRetryException ... server
 >   authentication` in the app log.
+>
+> **Email (ticket notifications):** add `MAIL_HOST`, `MAIL_PORT`,
+> `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` to `.env` (see
+> `.env.example`) to receive real ticket emails via Mailtrap/SMTP. Without
+> them the app boots and send attempts fail gracefully (warnings in the log).
 
 ## Development Workflow
 
@@ -385,10 +413,36 @@ Proprietary - CODAFRIQA AI
    points with a sentiment label (priority is derived from sentiment).
 3. Open **🎧 Agent Workspace** (header toggle, or `http://localhost:5173/?mode=agent`)
    and sign in with the Spring Security credentials (`admin` / `admin123`).
-4. Pick the escalated ticket, review the pinned AI Handoff Summary, click
+   To manage the RAG knowledge base directly, open **📚 Knowledge Base**
+   (or `http://localhost:5173/?mode=knowledge`) — same credentials.
+4. Pick the escalated ticket — the queue shows the customer's contact
+   (email), sentiment and priority badges, the AI handoff summary snippet,
+   and the last message. Review the pinned AI Handoff Summary, click
    **Take over**, then reply — replies are saved into the customer's
-   transcript, which the customer chat picks up via polling and shows with
-   a green "connected to a human agent" banner.
+   transcript, which the customer chat picks up via polling.
+5. The workspace **polls every 5s** while signed in, so newly escalated
+   tickets appear in the queue and new customer messages show up in the
+   open conversation automatically (no manual refresh needed).
+6. Once escalated, **automated AI responses are paused**: the customer's UI
+   switches to an amber "🎧 Agent Active — the AI assistant is paused"
+   banner, the input placeholder becomes "Message the agent…", and any
+   message the customer sends is acknowledged ("sent to the agent") without
+   invoking the AI — the agent owns the conversation from then on.
+
+## Ticket Lifecycle & Email Notifications
+
+- **State machine:** `SupportTicketService` owns all status transitions —
+  OPEN → IN_PROGRESS (takeover), OPEN/ESCALATED/IN_PROGRESS → RESOLVED,
+  RESOLVED → CLOSED. Any other transition returns a structured **400**
+  ("Invalid ticket status transition"). Takeover and resolve in the agent
+  workspace now route through this service.
+- **Emails:** on ticket **opened** (creation, incl. escalation), **updated**
+  (agent takeover), and **resolved**, `EmailNotificationService` sends a
+  styled HTML + plain-text email to the customer's address via
+  `JavaMailSender`. Configured for Mailtrap-style SMTP — set `MAIL_HOST` /
+  `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` (see `.env.example`) to
+  receive real emails. Without credentials the app still boots and send
+  failures are logged as warnings (`Could not send OPENED email ...`).
 
 ## Next Steps
 
@@ -400,5 +454,5 @@ Proprietary - CODAFRIQA AI
 
 ---
 
-**Last Updated:** Week 4 Complete (August 2026)  
+**Last Updated:** Week 6 Complete (August 2026)  
 **Maintainer:** CODAFRIQA Development Team

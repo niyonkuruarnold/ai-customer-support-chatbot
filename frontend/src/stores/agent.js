@@ -2,12 +2,21 @@ import { defineStore } from 'pinia'
 import * as agentApi from '../api/agent'
 import * as adminApi from '../api/admin'
 
+// How often the agent workspace refreshes the ticket queue + the open
+// conversation, so new escalations and customer messages appear live.
+const POLL_INTERVAL_MS = 5000
+
 /**
  * Agent workspace store.
  *
  * Agent credentials are held in the Axios client (in memory) and never
  * persisted. A 401 from any request flips `authenticated` back to false so
  * the workspace shows the sign-in form again.
+ *
+ * While authenticated, the store polls the backend (structured polling —
+ * the same mechanism the customer chat uses) so the queue picks up newly
+ * escalated tickets and the open conversation picks up new customer
+ * messages without a manual refresh.
  */
 export const useAgentStore = defineStore('agent', {
   state: () => ({
@@ -19,6 +28,7 @@ export const useAgentStore = defineStore('agent', {
     activeLoading: false,
     error: null,
     activeError: null,
+    pollTimer: null,
   }),
 
   getters: {
@@ -42,9 +52,11 @@ export const useAgentStore = defineStore('agent', {
       this.error = null
       await this.fetchTickets({ throwOnError: true })
       this.authenticated = true
+      this.startPolling()
     },
 
     logout() {
+      this.stopPolling()
       agentApi.clearAgentAuth()
       adminApi.clearAdminAuth()
       this.authenticated = false
@@ -53,6 +65,55 @@ export const useAgentStore = defineStore('agent', {
       this.activeTicket = null
       this.error = null
       this.activeError = null
+    },
+
+    /**
+     * Begin refreshing the queue + open conversation every few seconds.
+     * No-op while unauthenticated or already polling.
+     */
+    startPolling() {
+      this.stopPolling()
+      if (!this.authenticated) return
+      this.pollTimer = setInterval(() => this.pollActive(), POLL_INTERVAL_MS)
+    },
+
+    stopPolling() {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer)
+        this.pollTimer = null
+      }
+    },
+
+    /**
+     * One polling tick: refresh the queue and, when a ticket is open,
+     * re-fetch its transcript so new customer messages appear live.
+     * Failures are silent — the next tick retries.
+     */
+    async pollActive() {
+      if (!this.authenticated) return
+      try {
+        this.tickets = await agentApi.fetchTickets()
+      } catch (err) {
+        this.handleAuthFailure(err)
+        return
+      }
+      if (this.activeTicket) {
+        try {
+          const fresh = await agentApi.fetchTicketDetail(this.activeTicket.id)
+          // Only swap the ticket when something actually changed, so the
+          // conversation feed doesn't re-render and scroll on every tick.
+          if (
+            fresh.status !== this.activeTicket.status ||
+            JSON.stringify(fresh.messages) !== JSON.stringify(this.activeTicket.messages) ||
+            JSON.stringify(fresh.internalNotes ?? []) !==
+              JSON.stringify(this.activeTicket.internalNotes ?? [])
+          ) {
+            this.activeTicket = fresh
+          }
+        } catch (err) {
+          this.handleAuthFailure(err)
+        }
+      }
     },
 
     async fetchTickets({ throwOnError = false } = {}) {
@@ -147,6 +208,7 @@ export const useAgentStore = defineStore('agent', {
 
     handleAuthFailure(err) {
       if (err?.status === 401) {
+        this.stopPolling()
         this.authenticated = false
         this.agentName = ''
         agentApi.clearAgentAuth()

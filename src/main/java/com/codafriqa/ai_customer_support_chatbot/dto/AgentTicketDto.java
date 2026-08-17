@@ -9,6 +9,7 @@ public record AgentTicketDto(
         Long id,
         Long sessionId,
         Long userId,
+        String userEmail,   // customer contact shown in the agent workspace
         String subject,
         String description,
         String status,          // OPEN, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED

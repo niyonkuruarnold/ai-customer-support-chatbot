@@ -29,6 +29,8 @@ public class SecurityConfig {
                 // Agent workspace endpoints require authentication (HTTP Basic)
                 .requestMatchers("/api/agent/**", "/api/v1/agent/**").authenticated()
                 .requestMatchers("/api/admin/**", "/api/v1/admin/**").authenticated()
+                // Ticket lifecycle dashboard requires authentication (HTTP Basic)
+                .requestMatchers("/api/tickets/**", "/api/v1/tickets/**").authenticated()
                 .anyRequest().permitAll()
             );
         

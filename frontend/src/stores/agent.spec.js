@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAgentStore } from './agent'
 import * as agentApi from '../api/agent'
@@ -30,6 +30,7 @@ function ticket(overrides = {}) {
     id: 1,
     sessionId: 10,
     userId: 1,
+    userEmail: 'customer@example.com',
     subject: 'Refund request',
     description: 'I need a refund',
     status: 'ESCALATED',
@@ -210,6 +211,76 @@ describe('agent store', () => {
       expect(store.agentName).toBe('')
       expect(store.tickets).toHaveLength(0)
       expect(store.activeTicket).toBeNull()
+      expect(agentApi.clearAgentAuth).toHaveBeenCalled()
+      expect(adminApi.clearAdminAuth).toHaveBeenCalled()
+    })
+  })
+
+  describe('polling', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('starts polling after login so the queue + open ticket refresh live', async () => {
+      agentApi.fetchTickets.mockResolvedValue([ticket()])
+
+      await store.login('sarah', 'secret')
+
+      expect(store.pollTimer).not.toBeNull()
+      store.activeTicket = detail()
+      agentApi.fetchTickets.mockResolvedValue([
+        ticket({ id: 2, status: 'OPEN', subject: 'New escalation' }),
+      ])
+      agentApi.fetchTicketDetail.mockResolvedValue(
+        detail({
+          messages: [
+            ...detail().messages,
+            { id: 3, sender: 'USER', content: 'Hello?', timestamp: '2026-08-15T10:10:00' },
+          ],
+        }),
+      )
+
+      await vi.advanceTimersByTimeAsync(5000)
+
+      // login fetch + one polling tick
+      expect(agentApi.fetchTickets).toHaveBeenCalledTimes(2)
+      expect(agentApi.fetchTicketDetail).toHaveBeenCalledWith(1)
+      expect(store.tickets).toHaveLength(1)
+      expect(store.activeTicket.messages).toHaveLength(3)
+      expect(store.activeTicket.messages[2].content).toBe('Hello?')
+    })
+
+    it('does not poll while unauthenticated', () => {
+      store.startPolling()
+      expect(store.pollTimer).toBeNull()
+    })
+
+    it('stops polling on logout', async () => {
+      agentApi.fetchTickets.mockResolvedValue([ticket()])
+
+      await store.login('sarah', 'secret')
+      expect(store.pollTimer).not.toBeNull()
+
+      store.logout()
+
+      expect(store.pollTimer).toBeNull()
+      expect(store.authenticated).toBe(false)
+    })
+
+    it('flips to unauthenticated and stops when a poll tick gets a 401', async () => {
+      store.authenticated = true
+      store.startPolling()
+      expect(store.pollTimer).not.toBeNull()
+      agentApi.fetchTickets.mockRejectedValue(authError(401))
+
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(store.authenticated).toBe(false)
+      expect(store.pollTimer).toBeNull()
       expect(agentApi.clearAgentAuth).toHaveBeenCalled()
       expect(adminApi.clearAdminAuth).toHaveBeenCalled()
     })

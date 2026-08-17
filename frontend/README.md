@@ -38,23 +38,60 @@ The conversation is persisted server-side in a chat session (created on the
 first message); `loadHistory()` restores it from `GET /chat/session/{id}` on
 startup, with `localStorage` as an offline fallback. While a session is
 active the store polls the backend every 3s so agent replies (after a human
-handoff) appear in the customer's feed, and the session status drives the
-green "connected to a human agent" banner.
+handoff) appear in the customer's feed.
+
+**Agent Active mode:** once the session is escalated, the customer UI
+switches from "AI Support" to "Agent Active" — an amber banner ("🎧 Agent
+Active — the AI assistant is paused"), the header status and input
+placeholder change, and the backend no longer generates AI answers (each
+message gets a "sent to the agent" acknowledgement).
 
 The agent workspace (`src/stores/agent.js` + `src/components/agent/`) signs
 in with HTTP Basic credentials (kept in memory, never persisted), lists the
-escalated/open ticket queue, shows the pinned AI handoff summary, and lets
-agents take over, reply, add internal notes, and resolve tickets.
+escalated/open ticket queue (status / priority / sentiment badges + the
+customer's contact email), shows the pinned AI handoff summary, and lets
+agents take over, reply, add internal notes, and resolve tickets. While
+signed in the store **polls the backend every 5s** (structured polling —
+the same mechanism the customer chat uses), so newly escalated tickets
+appear in the queue and new customer messages stream into the open
+conversation without a manual refresh; polling stops on logout or a 401.
 
 ### Knowledge Base (RAG) manager
 
-The workspace has a **📚 Knowledge Base** tab (`src/components/admin/` +
-`src/stores/knowledgeBase.js` + `src/api/admin.js`) for managing the RAG
-corpus. It reuses the same Basic sign-in as the agent workspace (one login
-covers both). From there you can drag-and-drop `.txt`/`.md`/`.pdf` support
-files or paste raw FAQ text, see every indexed document with its chunk
-count, expand a document to preview its chunks, and delete documents (which
-removes their vectors from pgvector too).
+There are two entry points for managing the RAG corpus, both backed by
+`src/stores/knowledgeBase.js` + `src/api/admin.js` (which talks to the
+spec-exact `/v1/admin/knowledge-base/*` endpoints):
+
+- **Dedicated page** — `src/components/admin/KnowledgeBaseAdmin.vue`,
+  reachable via the **📚 Knowledge Base** header button or
+  `http://localhost:5173/?mode=knowledge`. Drag-and-drop `.md`/`.txt`
+  files (or browse), watch the indexing spinner while embeddings are
+  generated, review the indexed-documents **table** (title, source,
+  chunk count, date) and delete entries — with **toast notifications**
+  (`src/composables/useToasts.js`) for every success/error.
+- **Agent workspace tab** — `src/components/admin/KnowledgeBaseManager.vue`
+  inside the 🎧 Agent Workspace, which additionally supports pasting raw
+  FAQ text and expanding chunk previews.
+
+Both reuse the same Basic sign-in as the agent workspace (one login covers
+all areas). Deleting a document removes its vectors from pgvector too.
+
+### Ticket Dashboard
+
+`src/components/admin/TicketDashboard.vue`, reachable via the **🎫 Tickets**
+header button or `http://localhost:5173/?mode=tickets`, consumes the Week 6
+lifecycle API (`GET /api/v1/tickets` via `src/api/admin.js`):
+
+- **Filters** — status (Open / Escalated / In progress / Resolved / Closed),
+  priority (Low / Medium / High / Urgent), and assigned agent ID; any
+  change restarts at the first page, with a Clear filters shortcut.
+- **Pagination** — pageable table (10 per page) with prev/next controls and
+  a page counter; the backend response is the `PageResponse` wrapper.
+- **Close action** — resolved tickets get a Close button
+  (`POST /api/v1/tickets/{id}/close`), with success/error toasts.
+- Status + priority badges, customer email, assigned agent, and last-updated
+  timestamps per row; shares the same Basic sign-in and 401 handling as the
+  other admin areas.
 
 ## Testing
 
@@ -77,6 +114,9 @@ Coverage:
 - `src/components/admin/KnowledgeBaseManager.spec.js` — drag-and-drop
   upload, paste form, document list/chunk previews, delete, session-expiry
   prompt
+- `src/components/admin/TicketDashboard.spec.js` — sign-in gate, ticket list
+  rendering, status/priority/agent filters, pagination, close action, 401
+  handling
 
 ## Project structure
 
@@ -98,9 +138,12 @@ src/
 │   │   ├── AgentTicketList.vue     # Left panel: ticket queue with badges
 │   │   └── AgentConversation.vue   # Center panel: summary, transcript, notes, reply
 │   └── admin/
-│       └── KnowledgeBaseManager.vue # KB tab: drag-drop, paste text, manage docs
-├── App.vue                  # Chat layout + Agent Mode toggle (?mode=agent)
+│       ├── KnowledgeBaseManager.vue # KB tab: drag-drop, paste text, manage docs
+│       └── TicketDashboard.vue      # Ticket lifecycle: filters, pagination, close
+├── App.vue                  # Chat layout + mode toggle (?mode=agent | ?mode=knowledge | ?mode=tickets)
 ├── main.js
+├── composables/
+│   └── useToasts.js         # Module-scoped toast notifications
 └── style.css                # Tailwind entry
 ```
 

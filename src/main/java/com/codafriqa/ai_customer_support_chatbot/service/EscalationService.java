@@ -50,13 +50,16 @@ public class EscalationService {
     private final ChatModel chatModel;
     private final ChatSessionRepository sessionRepository;
     private final SupportTicketRepository ticketRepository;
+    private final SupportTicketService supportTicketService;
 
     public EscalationService(ChatModel chatModel,
                              ChatSessionRepository sessionRepository,
-                             SupportTicketRepository ticketRepository) {
+                             SupportTicketRepository ticketRepository,
+                             SupportTicketService supportTicketService) {
         this.chatModel = chatModel;
         this.sessionRepository = sessionRepository;
         this.ticketRepository = ticketRepository;
+        this.supportTicketService = supportTicketService;
     }
 
     /** Whether the customer's message requests a human agent. */
@@ -80,10 +83,12 @@ public class EscalationService {
 
         SummaryResult summary = generateSummary(transcript);
 
+        // New tickets go through SupportTicketService.open() so the lifecycle
+        // state machine owns creation and fires the "opened" customer email.
         SupportTicket ticket = ticketRepository
                 .findFirstBySessionIdOrderByUpdatedAtDesc(session.getId())
                 .filter(t -> !CLOSED_STATUSES.contains(t.getStatus()))
-                .orElseGet(() -> new SupportTicket(
+                .orElseGet(() -> supportTicketService.open(
                         session.getUserId(),
                         session.getId(),
                         subjectFor(transcript, triggerMessage),

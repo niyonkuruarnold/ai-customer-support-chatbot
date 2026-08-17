@@ -6,8 +6,10 @@ import com.codafriqa.ai_customer_support_chatbot.dto.ChatMessageDto;
 import com.codafriqa.ai_customer_support_chatbot.exception.ResourceNotFoundException;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatMessage;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
+import com.codafriqa.ai_customer_support_chatbot.model.User;
 import com.codafriqa.ai_customer_support_chatbot.repository.ChatMessageRepository;
 import com.codafriqa.ai_customer_support_chatbot.repository.SupportTicketRepository;
+import com.codafriqa.ai_customer_support_chatbot.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -25,11 +27,17 @@ public class AgentService {
 
     private final SupportTicketRepository ticketRepository;
     private final ChatMessageRepository messageRepository;
+    private final UserRepository userRepository;
+    private final SupportTicketService supportTicketService;
 
     public AgentService(SupportTicketRepository ticketRepository,
-                        ChatMessageRepository messageRepository) {
+                        ChatMessageRepository messageRepository,
+                        UserRepository userRepository,
+                        SupportTicketService supportTicketService) {
         this.ticketRepository = ticketRepository;
         this.messageRepository = messageRepository;
+        this.userRepository = userRepository;
+        this.supportTicketService = supportTicketService;
     }
 
     public List<AgentTicketDto> listTickets() {
@@ -43,12 +51,9 @@ public class AgentService {
         return toDetailDto(ticket, messages(ticket.getSessionId()));
     }
 
-    /** Assign the ticket to an agent and mark it in progress. */
+    /** Assign the ticket to an agent and mark it in progress (state machine). */
     public AgentTicketDetailDto takeOver(Long id, String agentName) {
-        SupportTicket ticket = findTicket(id);
-        ticket.setAssignedAgent(agentName);
-        ticket.setStatus("IN_PROGRESS");
-        ticketRepository.save(ticket);
+        supportTicketService.takeOver(id, agentName);
         return getTicket(id);
     }
 
@@ -69,14 +74,9 @@ public class AgentService {
         return getTicket(id);
     }
 
-    /** Mark the ticket resolved (completes the handoff workflow). */
+    /** Mark the ticket resolved (state machine + customer email). */
     public AgentTicketDetailDto resolve(Long id, String agentName) {
-        SupportTicket ticket = findTicket(id);
-        ticket.setStatus("RESOLVED");
-        if (ticket.getAssignedAgent() == null) {
-            ticket.setAssignedAgent(agentName);
-        }
-        ticketRepository.save(ticket);
+        supportTicketService.resolve(id, agentName);
         return getTicket(id);
     }
 
@@ -102,15 +102,26 @@ public class AgentService {
 
     private AgentTicketDto toListDto(SupportTicket t, String lastMessage) {
         return new AgentTicketDto(
-                t.getId(), t.getSessionId(), t.getUserId(), t.getSubject(), t.getDescription(),
-                t.getStatus(), t.getPriority(), t.getAssignedAgent(), t.getAiSummary(), t.getSentiment(),
-                lastMessage, t.getCreatedAt(), t.getUpdatedAt());
+                t.getId(), t.getSessionId(), t.getUserId(), userEmail(t.getUserId()), t.getSubject(),
+                t.getDescription(), t.getStatus(), t.getPriority(), t.getAssignedAgent(),
+                t.getAiSummary(), t.getSentiment(), lastMessage, t.getCreatedAt(), t.getUpdatedAt());
     }
 
     private AgentTicketDetailDto toDetailDto(SupportTicket t, List<ChatMessageDto> messages) {
         return new AgentTicketDetailDto(
-                t.getId(), t.getSessionId(), t.getUserId(), t.getSubject(), t.getDescription(),
-                t.getStatus(), t.getPriority(), t.getAssignedAgent(), t.getAiSummary(), t.getSentiment(),
-                t.getCreatedAt(), t.getUpdatedAt(), messages, t.getInternalNotes());
+                t.getId(), t.getSessionId(), t.getUserId(), userEmail(t.getUserId()), t.getSubject(),
+                t.getDescription(), t.getStatus(), t.getPriority(), t.getAssignedAgent(),
+                t.getAiSummary(), t.getSentiment(), t.getCreatedAt(), t.getUpdatedAt(),
+                messages, t.getInternalNotes());
+    }
+
+    /** Customer contact (email) for a ticket, resolved once per DTO. */
+    private String userEmail(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        return userRepository.findById(userId)
+                .map(User::getEmail)
+                .orElse(null);
     }
 }

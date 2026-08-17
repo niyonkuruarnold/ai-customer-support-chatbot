@@ -69,7 +69,7 @@ describe('App', () => {
     store.stopPolling()
   })
 
-  it('shows the human handoff banner when the session is escalated', async () => {
+  it('switches to Agent Active mode when the session is escalated', async () => {
     sendChatMessage.mockResolvedValue(
       okResponse({ status: 'ESCALATED', response: 'Connected to a human agent.' }),
     )
@@ -80,7 +80,10 @@ describe('App', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('connected to a human agent')
+    // UI switches from "AI Support" to "Agent Active" mode
+    expect(wrapper.text()).toContain('Agent Active')
+    expect(wrapper.text()).toContain('AI assistant is paused')
+    expect(wrapper.find('textarea').attributes('placeholder')).toContain('Message the agent')
     store.stopPolling()
   })
 
@@ -178,5 +181,36 @@ describe('App', () => {
 
     expect(wrapper.text()).toContain('Agent Workspace')
     expect(wrapper.text()).toContain('Agent sign in')
+  })
+
+  it('renders the knowledge base admin when knowledge mode is enabled', async () => {
+    localStorage.setItem('ai-support-chat:mode', 'knowledge')
+
+    const wrapper = await mountApp()
+
+    expect(wrapper.text()).toContain('Knowledge Base Admin')
+    expect(wrapper.text()).toContain('Admin sign in')
+  })
+
+  it('renders the ticket dashboard when tickets mode is enabled', async () => {
+    localStorage.setItem('ai-support-chat:mode', 'tickets')
+
+    const wrapper = await mountApp()
+
+    expect(wrapper.text()).toContain('Ticket Dashboard')
+    expect(wrapper.text()).toContain('Admin sign in')
+  })
+
+  it('switches to the ticket dashboard from the chat header', async () => {
+    const wrapper = await mountApp()
+
+    const ticketsButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Tickets'))
+
+    expect(ticketsButton).toBeTruthy()
+    await ticketsButton.trigger('click')
+
+    expect(wrapper.text()).toContain('Ticket Dashboard')
   })
 })

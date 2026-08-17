@@ -24,13 +24,17 @@ public class ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
-    /** The frontend has no registration yet, so anonymous sessions use this user id. */
-    private static final Long ANONYMOUS_USER_ID = 1L;
-
     /** Deterministic acknowledgement returned when the customer escalates. */
     private static final String HANDOFF_ACK =
             "You've been connected to a human support agent. 🎧 They can see our conversation history " +
             "and will join this chat shortly. Is there anything else you'd like to mention while you wait?";
+
+    /**
+     * Returned while a human agent is active (session ESCALATED): automated
+     * AI responses are paused so the agent owns the conversation.
+     */
+    private static final String AGENT_ACTIVE_ACK =
+            "Your message has been sent to the agent — they'll reply right here shortly.";
 
     /** Base system instruction; the retrieved knowledge base context is appended when available. */
     private static final String BASE_SYSTEM_INSTRUCTION = """
@@ -52,23 +56,31 @@ public class ChatService {
     private final ChatMessageRepository messageRepository;
     private final EscalationService escalationService;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final UserService userService;
 
     public ChatService(ChatModel chatModel,
                        ChatSessionRepository sessionRepository,
                        ChatMessageRepository messageRepository,
                        EscalationService escalationService,
-                       KnowledgeBaseService knowledgeBaseService) {
+                       KnowledgeBaseService knowledgeBaseService,
+                       UserService userService) {
         this.chatModel = chatModel;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.escalationService = escalationService;
         this.knowledgeBaseService = knowledgeBaseService;
+        this.userService = userService;
     }
 
     /**
      * Persist the user message, generate a response, and detect escalation.
-     * On escalation the session and ticket are marked ESCALATED and an AI
-     * handoff summary is generated from the transcript.
+     *
+     * Handoff behavior: when the customer requests a human agent the session
+     * and ticket are marked ESCALATED and an AI handoff summary is generated
+     * from the transcript. While the session is ESCALATED (a human agent is
+     * active), automated AI responses are PAUSED — the message is persisted
+     * and a short "sent to the agent" acknowledgement is returned instead, so
+     * the agent owns the conversation.
      *
      * @param userMessage the customer's message
      * @param sessionId   existing session id, or null to create a new session
@@ -77,11 +89,19 @@ public class ChatService {
         ChatSession session = resolveSession(sessionId);
         messageRepository.save(new ChatMessage(session.getId(), "USER", userMessage));
 
-        boolean escalated = escalationService.isEscalationRequest(userMessage);
-        String responseText = escalated ? HANDOFF_ACK : generateResponse(userMessage);
+        boolean escalationTrigger = escalationService.isEscalationRequest(userMessage);
+        String responseText;
+        if ("ESCALATED".equals(session.getStatus())) {
+            // Human agent active — no AI generation
+            responseText = AGENT_ACTIVE_ACK;
+        } else if (escalationTrigger) {
+            responseText = HANDOFF_ACK;
+        } else {
+            responseText = generateResponse(userMessage);
+        }
         messageRepository.save(new ChatMessage(session.getId(), "AI", responseText));
 
-        if (escalated) {
+        if (escalationTrigger) {
             List<ChatMessage> transcript = messageRepository.findBySessionIdOrderByTimestampAsc(session.getId());
             escalationService.escalate(session, userMessage, transcript);
         }
@@ -101,11 +121,15 @@ public class ChatService {
     }
 
     private ChatSession resolveSession(Long sessionId) {
+        // The chat has no registration, so every session is backed by the
+        // anonymous customer account (resolved by email, created if missing)
+        // — its email is the contact detail shown in the agent workspace.
+        Long userId = userService.ensureAnonymousUser().getId();
         if (sessionId != null) {
             return sessionRepository.findById(sessionId)
-                    .orElseGet(() -> sessionRepository.save(new ChatSession(ANONYMOUS_USER_ID)));
+                    .orElseGet(() -> sessionRepository.save(new ChatSession(userId)));
         }
-        return sessionRepository.save(new ChatSession(ANONYMOUS_USER_ID));
+        return sessionRepository.save(new ChatSession(userId));
     }
 
     /**

@@ -10,26 +10,35 @@ import {
 import ChatMessage from './components/ChatMessage.vue'
 import TypingIndicator from './components/TypingIndicator.vue'
 import AgentWorkspace from './components/agent/AgentWorkspace.vue'
+import KnowledgeBaseAdmin from './components/admin/KnowledgeBaseAdmin.vue'
+import TicketDashboard from './components/admin/TicketDashboard.vue'
 import { MAX_MESSAGE_LENGTH, useChatStore } from './stores/chat'
 
 const store = useChatStore()
 
-// Agent Mode: toggled from the header (persisted) or via ?mode=agent
-const agentMode = ref(
-  localStorage.getItem('ai-support-chat:mode') === 'agent' ||
-    new URLSearchParams(window.location.search).get('mode') === 'agent',
-)
+// View mode: 'chat' | 'agent' (workspace) | 'knowledge' (KB admin) | 'tickets'.
+// Persisted in localStorage and deep-linkable via ?mode=agent|knowledge|tickets.
+function initialView() {
+  const param = new URLSearchParams(window.location.search).get('mode')
+  if (param === 'agent' || param === 'knowledge' || param === 'tickets') return param
+  const saved = localStorage.getItem('ai-support-chat:mode')
+  return saved === 'agent' || saved === 'knowledge' || saved === 'tickets'
+    ? saved
+    : 'chat'
+}
 
-function setAgentMode(on) {
-  agentMode.value = on
+const view = ref(initialView())
+
+function setView(next) {
+  view.value = next
   try {
-    localStorage.setItem('ai-support-chat:mode', on ? 'agent' : 'chat')
+    localStorage.setItem('ai-support-chat:mode', next)
   } catch {
     // ignore storage errors
   }
   const url = new URL(window.location.href)
-  if (on) url.searchParams.set('mode', 'agent')
-  else url.searchParams.delete('mode')
+  if (next === 'chat') url.searchParams.delete('mode')
+  else url.searchParams.set('mode', next)
   window.history.replaceState({}, '', url)
 }
 
@@ -124,9 +133,18 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- Agent workspace (togglable mode; also deep-linkable via ?mode=agent) -->
-  <AgentWorkspace
-    v-if="agentMode"
-    @switch-to-chat="setAgentMode(false)"
+  <AgentWorkspace v-if="view === 'agent'" @switch-to-chat="setView('chat')" />
+
+  <!-- Dedicated Knowledge Base admin page (?mode=knowledge) -->
+  <KnowledgeBaseAdmin
+    v-else-if="view === 'knowledge'"
+    @switch-to-chat="setView('chat')"
+  />
+
+  <!-- Ticket lifecycle dashboard (?mode=tickets) -->
+  <TicketDashboard
+    v-else-if="view === 'tickets'"
+    @switch-to-chat="setView('chat')"
   />
 
   <!-- Customer chat -->
@@ -159,16 +177,21 @@ onBeforeUnmount(() => {
           <h1 class="truncate text-base font-semibold">
             AI Customer Support
           </h1>
-          <p class="flex items-center gap-1.5 text-xs text-slate-500">
+          <p
+            class="flex items-center gap-1.5 text-xs"
+            :class="store.isEscalated ? 'text-amber-700' : 'text-slate-500'"
+          >
             <span class="relative flex size-2" aria-hidden="true">
               <span
-                class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75"
+                class="absolute inline-flex size-full animate-ping rounded-full opacity-75"
+                :class="store.isEscalated ? 'bg-amber-400' : 'bg-emerald-400'"
               ></span>
               <span
-                class="relative inline-flex size-2 rounded-full bg-emerald-500"
+                class="relative inline-flex size-2 rounded-full"
+                :class="store.isEscalated ? 'bg-amber-500' : 'bg-emerald-500'"
               ></span>
             </span>
-            Online · replies instantly
+            {{ store.isEscalated ? 'Agent Active · AI paused, a human agent is with you' : 'Online · replies instantly' }}
           </p>
         </div>
 
@@ -202,10 +225,28 @@ onBeforeUnmount(() => {
           {{ confirmingClear ? 'Confirm clear?' : 'Clear chat' }}
         </button>
 
+        <!-- Ticket dashboard toggle -->
+        <button
+          type="button"
+          @click="setView('tickets')"
+          class="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-emerald-600"
+        >
+          🎫 Tickets
+        </button>
+
+        <!-- Knowledge base admin toggle -->
+        <button
+          type="button"
+          @click="setView('knowledge')"
+          class="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-violet-600"
+        >
+          📚 Knowledge Base
+        </button>
+
         <!-- Agent workspace toggle -->
         <button
           type="button"
-          @click="setAgentMode(true)"
+          @click="setView('agent')"
           class="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-indigo-600"
         >
           🎧 Agent Workspace
@@ -213,23 +254,24 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <!-- Human handoff banner (customer view) -->
+    <!-- Agent Active banner (customer view) -->
     <div
       v-if="store.isEscalated"
-      class="border-b border-emerald-200 bg-emerald-50"
+      class="border-b border-amber-200 bg-amber-50"
     >
       <div class="mx-auto flex max-w-3xl items-center gap-2 px-4 py-2">
         <span class="relative flex size-2" aria-hidden="true">
           <span
-            class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75"
+            class="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-75"
           ></span>
           <span
-            class="relative inline-flex size-2 rounded-full bg-emerald-500"
+            class="relative inline-flex size-2 rounded-full bg-amber-500"
           ></span>
         </span>
-        <p class="text-xs font-medium text-emerald-700">
-          You're now connected to a human agent 🎧 — they can see our
-          conversation and will reply right here.
+        <p class="text-xs font-medium text-amber-800">
+          🎧 Agent Active — the AI assistant is paused and a human agent is
+          now handling this chat. They can see our conversation and will
+          reply right here.
         </p>
       </div>
     </div>
@@ -292,7 +334,7 @@ onBeforeUnmount(() => {
               v-model="input"
               rows="1"
               :maxlength="MAX_MESSAGE_LENGTH"
-              placeholder="Type your message… (Shift+Enter for a new line)"
+              :placeholder="store.isEscalated ? 'Message the agent… (Shift+Enter for a new line)' : 'Type your message… (Shift+Enter for a new line)'"
               class="max-h-40 w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 pr-16 text-sm leading-relaxed text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               @input="resizeInput"
               @keydown.enter.exact.prevent="handleSubmit"

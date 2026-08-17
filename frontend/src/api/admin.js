@@ -45,7 +45,7 @@ async function request(fn) {
 /**
  * Upload a support document (.txt/.md/.pdf) and index it.
  *
- * POST /admin/documents/upload (multipart: file + optional title)
+ * POST /v1/admin/knowledge-base/upload (multipart: file + optional title)
  * @param {File} file
  * @param {string} [title]
  */
@@ -54,12 +54,14 @@ export function uploadDocument(file, title) {
   form.append('file', file)
   if (title) form.append('title', title)
   return request(
-    async () => (await adminClient.post('/admin/documents/upload', form)).data,
+    async () =>
+      (await adminClient.post('/v1/admin/knowledge-base/upload', form)).data,
   )
 }
 
 /**
- * Index raw pasted FAQ/support text.
+ * Index raw pasted FAQ/support text (no v1 knowledge-base equivalent —
+ * the documents namespace is used by the agent workspace KB tab).
  * POST /admin/documents/text  ({ title, content })
  */
 export function addTextDocument(title, content) {
@@ -69,17 +71,43 @@ export function addTextDocument(title, content) {
   )
 }
 
-/** GET /admin/documents -> KnowledgeDocumentDto[] */
+/** GET /v1/admin/knowledge-base -> KnowledgeDocumentDto[] */
 export function fetchDocuments() {
-  return request(async () => (await adminClient.get('/admin/documents')).data)
+  return request(
+    async () => (await adminClient.get('/v1/admin/knowledge-base')).data,
+  )
 }
 
-/** GET /admin/documents/chunks -> KnowledgeChunkDto[] */
+/** GET /admin/documents/chunks -> KnowledgeChunkDto[] (no v1 equivalent) */
 export function fetchChunks() {
   return request(async () => (await adminClient.get('/admin/documents/chunks')).data)
 }
 
-/** DELETE /admin/documents/{id} */
+/** DELETE /v1/admin/knowledge-base/{id} */
 export function deleteDocument(id) {
-  return request(async () => adminClient.delete(`/admin/documents/${id}`))
+  return request(
+    async () => adminClient.delete(`/v1/admin/knowledge-base/${id}`),
+  )
+}
+
+/**
+ * List support tickets for the admin dashboard, with optional filters and
+ * pagination. GET /v1/tickets?status=&priority=&assignedAgentId=&page=&size=
+ * @returns {Promise<PageResponse>} { content, page, size, totalElements, totalPages, last }
+ */
+export function fetchTickets({ status, priority, assignedAgentId, page = 0, size = 10 } = {}) {
+  const params = { page, size }
+  if (status) params.status = status
+  if (priority) params.priority = priority
+  if (assignedAgentId != null && assignedAgentId !== '') {
+    params.assignedAgentId = assignedAgentId
+  }
+  return request(
+    async () => (await adminClient.get('/v1/tickets', { params })).data,
+  )
+}
+
+/** POST /v1/tickets/{id}/close -> TicketDto (RESOLVED -> CLOSED) */
+export function closeTicket(id) {
+  return request(async () => (await adminClient.post(`/v1/tickets/${id}/close`)).data)
 }

@@ -93,6 +93,12 @@ function saveNote() {
               {{ store.activeTicket.assignedAgent || 'nobody yet' }}
             </span>
             · Updated {{ formatTime(store.activeTicket.updatedAt) }}
+            <template v-if="store.activeTicket.userEmail">
+              · Customer
+              <span class="font-medium text-slate-700">
+                {{ store.activeTicket.userEmail }}
+              </span>
+            </template>
           </p>
           <div class="flex gap-2">
             <button

@@ -25,6 +25,12 @@ const priorityClass = {
   HIGH: 'bg-orange-100 text-orange-700',
   URGENT: 'bg-red-100 text-red-700',
 }
+
+const sentimentClass = {
+  positive: 'bg-emerald-100 text-emerald-700',
+  neutral: 'bg-slate-100 text-slate-600',
+  negative: 'bg-red-100 text-red-700',
+}
 </script>
 
 <template>
@@ -83,20 +89,44 @@ const priorityClass = {
             {{ statusLabel[ticket.status] || ticket.status }}
           </span>
         </div>
+        <!-- AI handoff summary takes priority; fall back to the last message -->
         <p
-          v-if="ticket.lastMessage"
+          v-if="ticket.aiSummary"
+          class="mt-1 line-clamp-2 text-xs leading-relaxed text-amber-800/90"
+          :title="ticket.aiSummary"
+        >
+          {{ ticket.aiSummary }}
+        </p>
+        <p
+          v-else-if="ticket.lastMessage"
           class="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500"
         >
           {{ ticket.lastMessage }}
         </p>
-        <div class="mt-2 flex items-center justify-between">
-          <span
-            class="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-            :class="priorityClass[ticket.priority] || priorityClass.MEDIUM"
-          >
-            {{ ticket.priority }}
+        <p
+          v-if="ticket.userEmail"
+          class="mt-1 truncate text-[11px] text-slate-400"
+          title="Customer contact"
+        >
+          ✉️ {{ ticket.userEmail }}
+        </p>
+        <div class="mt-2 flex items-center justify-between gap-2">
+          <span class="flex min-w-0 items-center gap-1.5">
+            <span
+              class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              :class="priorityClass[ticket.priority] || priorityClass.MEDIUM"
+            >
+              {{ ticket.priority }}
+            </span>
+            <span
+              v-if="ticket.sentiment"
+              class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize"
+              :class="sentimentClass[ticket.sentiment] || sentimentClass.neutral"
+            >
+              {{ ticket.sentiment }}
+            </span>
           </span>
-          <span class="text-[10px] text-slate-400">
+          <span class="shrink-0 text-[10px] text-slate-400">
             {{ ticket.assignedAgent ? `@${ticket.assignedAgent}` : 'Unassigned' }}
           </span>
         </div>

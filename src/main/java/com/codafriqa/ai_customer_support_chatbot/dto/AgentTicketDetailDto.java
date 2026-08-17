@@ -11,6 +11,7 @@ public record AgentTicketDetailDto(
         Long id,
         Long sessionId,
         Long userId,
+        String userEmail,   // customer contact shown in the agent workspace
         String subject,
         String description,
         String status,

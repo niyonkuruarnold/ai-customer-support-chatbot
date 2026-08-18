@@ -190,7 +190,7 @@ spring.datasource.username=postgres
 spring.datasource.password=postgres
 
 # OpenAI (for RAG + AI responses)
-spring.ai.openai.api-key=${OPENAI_API_KEY:}
+spring.ai.openai.api-key=${OPENAI_API_KEY}
 
 # Server
 server.port=8080
@@ -224,15 +224,16 @@ server.port=8080
 > warning otherwise.
 >
 > **Two config flavors** (pick one in `application.properties`):
-> - `${OPENAI_API_KEY:}` (default) — resolves to empty when the variable is
->   missing, and Spring AI M6 then **fails fast at boot** with "OpenAI API key
->   must be set". Use this when a key (`.env` or exported) is always expected.
-> - `${OPENAI_API_KEY}` — the placeholder stays unresolved without a key, the
->   app boots and degrades gracefully: chat answers with the fallback message
->   and knowledge base uploads fail with a 400 "Could not generate
->   embeddings" (rolled back cleanly). The exact failure is logged with its
->   full stack trace — look for `Caused by: HttpRetryException ... server
->   authentication` in the app log.
+> - `${OPENAI_API_KEY}` (default) — the placeholder stays unresolved without
+>   a key, the app boots and degrades gracefully: chat answers with the
+>   fallback message and knowledge base uploads fail with a 400 "Could not
+>   generate embeddings" (rolled back cleanly). The exact failure is logged
+>   with its full stack trace — look for `Caused by: HttpRetryException ...
+>   server authentication` in the app log. A missing or placeholder key is
+>   never an unhandled exception.
+> - `${OPENAI_API_KEY:}` — resolves to empty when the variable is missing,
+>   and Spring AI M6 then **fails fast at boot** with "OpenAI API key must be
+>   set". Use this when a key (`.env` or exported) is always expected.
 >
 > **Email (ticket notifications):** add `MAIL_HOST`, `MAIL_PORT`,
 > `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` to `.env` (see

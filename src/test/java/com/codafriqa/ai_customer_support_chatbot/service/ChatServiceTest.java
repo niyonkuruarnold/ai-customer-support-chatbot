@@ -197,6 +197,72 @@ class ChatServiceTest {
         assertTrue(systemCaptor.getValue().contains("Returns are accepted within 30 days of delivery."));
     }
 
+    /** VectorStore whose similarity search always fails (unreachable store / no embedding key). */
+    static class ThrowingVectorStore implements VectorStore {
+        @Override
+        public void add(List<Document> documents) {
+        }
+
+        @Override
+        public void delete(List<String> ids) {
+        }
+
+        @Override
+        public void delete(Filter.Expression expression) {
+        }
+
+        @Override
+        public List<Document> similaritySearch(SearchRequest request) {
+            throw new IllegalStateException("vector store unavailable (no OPENAI_API_KEY?)");
+        }
+    }
+
+    @Test
+    void aiFailureReturnsStructuredFallbackResponseInsteadOfThrowing() {
+        // Simulates a placeholder or invalid OPENAI_API_KEY: the model call
+        // itself fails (401) at runtime — the service must not let that
+        // exception escape; it returns a friendly fallback response instead.
+        stubInfrastructure(false);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(any(String.class))).thenReturn(requestSpec);
+        when(requestSpec.user(any(String.class))).thenReturn(requestSpec);
+        when(requestSpec.call())
+                .thenThrow(new IllegalStateException("401 Unauthorized — bad API key"));
+
+        var result = service.sendMessage("Where is my order?", null);
+
+        assertTrue(result.getResponse().contains("having trouble processing"));
+        assertEquals("ACTIVE", result.getStatus());
+        assertFalse(result.isRagUsed());
+        assertTrue(result.getContextReferences().isEmpty());
+        assertFalse(escalationService.escalateCalled);
+    }
+
+    @Test
+    void retrievalFailureFallsBackToPlainPromptWithoutThrowing() {
+        // Simulates a missing OPENAI_API_KEY / unreachable vector store: the
+        // similarity search throws, RagService swallows it and returns empty
+        // context, and ChatService answers from the base instruction alone.
+        stubInfrastructure(false);
+        stubAiAnswer("Answer without knowledge base context");
+        RagService ragService = new RagService(new ThrowingVectorStore(), chatClientBuilder, null);
+        service = new ChatService(
+                chatClientBuilder, sessionRepository, messageRepository,
+                escalationService, ragService, new UserService(userRepository));
+
+        var result = service.sendMessage("What is your return policy?", null);
+
+        assertEquals("Answer without knowledge base context", result.getResponse());
+        assertFalse(result.isRagUsed());
+        assertTrue(result.getContextReferences().isEmpty());
+
+        // The system prompt must NOT contain the knowledge base section.
+        ArgumentCaptor<String> systemCaptor = ArgumentCaptor.forClass(String.class);
+        verify(requestSpec).system(systemCaptor.capture());
+        assertFalse(systemCaptor.getValue().contains("Relevant knowledge base context"));
+        assertTrue(systemCaptor.getValue().contains("AI Customer Support Agent"));
+    }
+
     @Test
     void escalatedSessionPausesAiAndAcksTheMessage() {
         stubInfrastructure(true);

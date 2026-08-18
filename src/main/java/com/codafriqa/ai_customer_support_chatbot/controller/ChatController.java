@@ -4,6 +4,10 @@ import com.codafriqa.ai_customer_support_chatbot.dto.ChatRequestDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatResponseDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.SessionInfoDto;
 import com.codafriqa.ai_customer_support_chatbot.service.ChatService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping({"/api/chat", "/api/v1/chat"})
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
+@Tag(name = "Chat", description = "AI-powered chat endpoints for customer conversations")
 public class ChatController {
 
     private final ChatService chatService;
@@ -34,9 +39,17 @@ public class ChatController {
      * The backend persists the message in a session (created on first
      * message when sessionId is absent) and returns the session id plus
      * its status so the frontend can continue the conversation.
-     * @param request ChatRequestDto with validated message and optional sessionId
-     * @return ChatResponseDto with AI response, sessionId and session status
      */
+    @Operation(
+            summary = "Send a chat message",
+            description = "Send a user message to the AI chatbot. The backend persists the message in a session " +
+                    "(created on the first message when sessionId is absent) and returns the AI-generated response " +
+                    "along with the session id and status.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "AI response returned successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request (empty message or validation error)"),
+            @ApiResponse(responseCode = "500", description = "AI service temporarily unavailable")
+    })
     @PostMapping({"", "/message"})
     public ResponseEntity<ChatResponseDto> sendMessage(@Valid @RequestBody ChatRequestDto request) {
         ChatResponseDto response = chatService.sendMessage(request.getMessage(), request.getSessionId());
@@ -47,6 +60,15 @@ public class ChatController {
      * Fetch session status + transcript (used by the customer frontend to
      * restore history and pick up agent replies after a handoff)
      */
+    @Operation(
+            summary = "Get chat session info",
+            description = "Retrieve the full session state including status (ACTIVE / ESCALATED) and " +
+                    "the complete message transcript. Used by the customer frontend to restore history " +
+                    "and pick up agent replies after a human handoff.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Session info returned successfully"),
+            @ApiResponse(responseCode = "404", description = "Session not found")
+    })
     @GetMapping("/session/{id}")
     public ResponseEntity<SessionInfoDto> getSession(@PathVariable Long id) {
         return ResponseEntity.ok(chatService.getSessionInfo(id));
@@ -55,6 +77,10 @@ public class ChatController {
     /**
      * Health check endpoint for frontend
      */
+    @Operation(
+            summary = "Health check",
+            description = "Simple health check endpoint to verify the backend is running.")
+    @ApiResponse(responseCode = "200", description = "Service is healthy")
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("AI Customer Support Chatbot is running");

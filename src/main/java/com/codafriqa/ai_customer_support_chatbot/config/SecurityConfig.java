@@ -25,6 +25,8 @@ public class SecurityConfig {
             // Agent workspace endpoints use HTTP Basic (agent sign-in in the frontend)
             .httpBasic(Customizer.withDefaults())
             .authorizeHttpRequests(auth -> auth
+                // Swagger / OpenAPI docs — always accessible
+                .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                 .requestMatchers("/api/chat/**").permitAll()
                 // Agent workspace endpoints require authentication (HTTP Basic)
                 .requestMatchers("/api/agent/**", "/api/v1/agent/**").authenticated()

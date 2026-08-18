@@ -33,6 +33,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/**", "/api/v1/admin/**").authenticated()
                 // Ticket lifecycle dashboard requires authentication (HTTP Basic)
                 .requestMatchers("/api/tickets/**", "/api/v1/tickets/**").authenticated()
+                // Tool reservation endpoints require authentication
+                .requestMatchers("/api/reservations/**", "/api/v1/reservations/**").authenticated()
                 .anyRequest().permitAll()
             );
         

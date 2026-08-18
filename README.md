@@ -90,6 +90,73 @@ graph LR
 
 ---
 
+## Escalation Sequence Diagram
+
+The following Mermaid sequence diagram illustrates the complete flow from a customer requesting human help through to a live agent taking over the conversation.
+
+```mermaid
+sequenceDiagram
+    actor User as Customer
+    participant FE as Vue Frontend
+    participant BE as Spring Boot Backend
+    participant DB as PgVector Store
+    participant AI as OpenAI API
+    participant AG as Agent Workspace
+
+    %% Normal RAG-powered chat
+    User->>FE: Sends message (e.g. "What is your return policy?")
+    FE->>BE: POST /api/chat { message, sessionId }
+    BE->>DB: similaritySearch(embedded query, top-K=4)
+    DB-->>BE: Returns relevant document chunks
+    BE->>AI: ChatClient.prompt() with enriched system prompt
+    AI-->>BE: Grounded answer + ragUsed, contextReferences
+    BE-->>FE: ChatResponseDto { response, sessionId, status, ragUsed, contextReferences }
+    FE-->>User: Displays AI answer with source citations
+
+    %% Customer triggers escalation
+    User->>FE: Sends "Talk to a human agent"
+    FE->>BE: POST /api/chat { message, sessionId }
+    BE->>BE: EscalationService detects escalation intent
+    BE->>AI: Generate AI summary + sentiment label
+    AI-->>BE: Summary (2-3 bullets) + sentiment (positive/neutral/negative)
+    BE->>BE: Create/UPDATE ticket (status=ESCALATED, priority from sentiment)
+    BE-->>FE: ChatResponseDto { status: ESCALATED, handoffAck }
+    FE-->>User: Shows "Agent Active" amber banner + handoff acknowledgement
+
+    %% Agent picks up the ticket
+    AG->>BE: GET /api/agent/tickets (polls every 5s)
+    BE-->>AG: Ticket list with escalation summary
+    AG->>BE: POST /api/agent/tickets/{id}/takeover
+    BE->>BE: SupportTicketService.transition(OPEN/ESCALATED -> IN_PROGRESS)
+    BE-->>AG: Ticket detail + full transcript
+    AG-->>Agent: Displays live conversation view
+
+    %% Agent replies
+    Agent->>AG: Types reply
+    AG->>BE: POST /api/agent/tickets/{id}/reply { message }
+    BE->>BE: Save agent reply to chat_messages (sender=AGENT)
+    BE-->>AG: Reply saved
+    AG-->>Agent: Reply appears in conversation
+
+    %% Customer sees agent reply via polling
+    FE->>BE: GET /api/chat/session/{id} (polls every 3s)
+    BE-->>FE: Session transcript with new agent message
+    FE-->>User: Agent reply appears in chat with @ agent icon
+```
+
+---
+
+## Feature Breakdown
+
+| Feature | Description | Technology | Key Endpoints / Files |
+|---------|-------------|------------|----------------------|
+| **RAG Context Ingestion** | Ingest `.txt`, `.md`, `.pdf` documents into a vector store for retrieval-augmented generation. Documents are chunked (~500 tokens), embedded with OpenAI `text-embedding-3-small` (1536-dim), and stored in pgvector. Top-K (4) relevant chunks are retrieved per user query and injected into the system prompt. | Spring AI, pgvector, OpenAI Embeddings, `TokenTextSplitter` | `POST /api/v1/rag/ingest`, `RagService.java`, `KnowledgeBaseService.java`, `vector_store` table |
+| **Live Agent Takeover (Polling)** | When the AI cannot resolve an issue, the customer triggers escalation. The backend generates an AI handoff summary + sentiment, pauses automated responses, and the agent workspace displays a live ticket queue refreshed via 5-second polling. Agent replies are saved directly to the customer transcript. | Spring AI (summary), Polling (5s), `EscalationService`, `AgentService` | `POST /api/chat` (escalation), `POST /api/agent/tickets/{id}/takeover`, `AgentWorkspace.vue` |
+| **Basic-Auth Security** | Spring Security with HTTP Basic Authentication protects agent and admin endpoints. Customer-facing chat endpoints remain public. Credentials seeded on boot via `DataInitializer` (default: `admin` / `admin123`). | Spring Security, `SecurityConfig.java`, `UserDetailsService` | `GET /api/agent/**`, `GET /api/v1/admin/**`, `POST /api/v1/tickets/**` |
+| **GitHub Actions CI** | Automated CI pipeline runs on every push/PR: backend tests (Java 21, Maven, PostgreSQL service container with pgvector) and frontend tests (Node 20, Vitest). JaCoCo coverage reports are generated, uploaded as artifacts, and summarized in the workflow run. | GitHub Actions, JaCoCo 0.8.12, pgvector/pgvector:pg17 | `.github/workflows/ci.yml` |
+
+---
+
 ## Key Features
 
 ### 🧠 RAG (Retrieval-Augmented Generation) Pipeline
@@ -514,6 +581,24 @@ spring.ai.openai.api-key=${OPENAI_API_KEY}
 # Server
 server.port=8080
 ```
+
+### Environment Variables Reference
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes (for RAG) | *(empty)* | OpenAI API key for GPT-4 chat completions and `text-embedding-3-small` vector embeddings. Without it, chat falls back to a plain prompt and KB uploads fail with a 400. |
+| `SPRING_DATASOURCE_URL` | No | `jdbc:postgresql://127.0.0.1:5432/ai_customer_support_chatbot` | PostgreSQL JDBC connection URL. Points to the Docker container by default. |
+| `SPRING_DATASOURCE_USERNAME` | No | `postgres` | Database username. |
+| `SPRING_DATASOURCE_PASSWORD` | No | `postgres` | Database password. |
+| `SPRING_AI_VECTORSTORE_PGVECTOR_INITIALIZE-SCHEMA` | No | `true` | Auto-create the pgvector `vector_store` table on boot (Spring AI M6 default). |
+| `SPRING_AI_OPENAI_API_KEY` | No | *(same as OPENAI_API_KEY)* | Explicit Spring AI property for the OpenAI key. Falls back to `OPENAI_API_KEY` via placeholder resolution. |
+| `MAIL_HOST` | No | *(empty)* | SMTP host for ticket email notifications (e.g. `smtp.mailtrap.io`). Without it, emails are skipped gracefully. |
+| `MAIL_PORT` | No | *(empty)* | SMTP port (e.g. `2525`). |
+| `MAIL_USERNAME` | No | *(empty)* | SMTP username. |
+| `MAIL_PASSWORD` | No | *(empty)* | SMTP password. |
+| `MAIL_FROM` | No | *(empty)* | Sender email address for notifications. |
+
+> **Tip:** Copy `.env.example` to `.env` and fill in your values. The `spring-dotenv` dependency loads `.env` automatically — real environment variables always win over `.env` values.
 
 > **Set the OpenAI key before starting the app.** The property is the
 > placeholder `${OPENAI_API_KEY:}` (empty default), read from the process

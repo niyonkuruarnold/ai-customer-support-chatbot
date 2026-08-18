@@ -2,12 +2,17 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAgentStore } from '../../stores/agent'
 import { useReservationStore } from '../../stores/reservation'
+import { useReviewStore } from '../../stores/review'
 import DateRangePicker from './DateRangePicker.vue'
+import StarRating from './StarRating.vue'
+import ReviewForm from './ReviewForm.vue'
+import ReviewList from './ReviewList.vue'
 
 const emit = defineEmits(['switch-to-chat'])
 
 const agentStore = useAgentStore()
 const reservationStore = useReservationStore()
+const reviewStore = useReviewStore()
 
 // Auth state
 const username = ref('')
@@ -17,6 +22,11 @@ const loginError = ref('')
 
 // Tab state: 'borrows' = My Active Borrows, 'requests' = My Tool Lending Requests
 const activeTab = ref('borrows')
+
+// Review state
+const reviewingReservationId = ref(null)
+const toolReviewsMap = ref({})
+const toolAverageMap = ref({})
 
 // Date picker state
 const pickerRef = ref(null)
@@ -34,6 +44,33 @@ onMounted(() => {
     reservationStore.fetchMyReservations(agentStore.userId)
   }
 })
+
+// Load reviews and averages for returned reservations
+async function loadReviewsForReturned() {
+  const returned = reservationStore.pastReservations.filter(r => r.status === 'RETURNED')
+  for (const r of returned) {
+    // Check review status
+    await reviewStore.checkReservationReviewStatus(r.id)
+    // Load reviews for this tool if not cached
+    if (!toolReviewsMap.value[r.toolId]) {
+      await reviewStore.fetchToolReviews(r.toolId)
+      toolReviewsMap.value[r.toolId] = reviewStore.toolReviews
+      await reviewStore.fetchToolAverage(r.toolId)
+      toolAverageMap.value[r.toolId] = reviewStore.toolAverage
+    }
+  }
+}
+
+// Watch for changes in past reservations to load reviews
+watch(
+  () => reservationStore.pastReservations.length,
+  () => {
+    if (isAuthenticated.value) {
+      loadReviewsForReturned()
+    }
+  },
+  { immediate: true }
+)
 
 async function handleLogin() {
   loginLoading.value = true
@@ -54,6 +91,27 @@ async function handleLogin() {
   } finally {
     loginLoading.value = false
   }
+}
+
+// Handle review submission
+async function handleReviewSubmit(payload) {
+  try {
+    await reviewStore.submitNewReview({
+      ...payload,
+      reviewerId: agentStore.userId,
+    })
+    reviewingReservationId.value = null
+    // Reload reviews for this tool
+    await reviewStore.fetchToolReviews(payload.toolId)
+    toolReviewsMap.value[payload.toolId] = reviewStore.toolReviews
+  } catch (err) {
+    console.error('Failed to submit review:', err)
+  }
+}
+
+// Handle review cancel
+function handleReviewCancel() {
+  reviewingReservationId.value = null
 }
 
 function handleLogout() {
@@ -398,6 +456,47 @@ function formatDate(d) {
                 <p v-if="r.notes" class="mt-1 text-xs text-slate-400 italic">
                   "{{ r.notes }}"
                 </p>
+
+                <!-- Review section for returned items -->
+                <div v-if="r.status === 'RETURNED'" class="mt-3 border-t border-slate-100 pt-3">
+                  <!-- Already reviewed -->
+                  <div v-if="reviewStore.isReviewed(r.id)" class="flex items-center gap-2 text-xs text-emerald-600">
+                    <svg class="size-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" />
+                    </svg>
+                    Review submitted
+                  </div>
+
+                  <!-- Show review form button -->
+                  <div v-else-if="reviewingReservationId !== r.id">
+                    <button
+                      type="button"
+                      @click="reviewingReservationId = r.id"
+                      class="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100"
+                    >
+                      ⭐ Leave a Review
+                    </button>
+                  </div>
+
+                  <!-- Review form -->
+                  <ReviewForm
+                    v-else
+                    :tool-id="r.toolId"
+                    :reservation-id="r.id"
+                    :is-submitting="reviewStore.isLoading"
+                    @submit="handleReviewSubmit"
+                    @cancel="handleReviewCancel"
+                  />
+                </div>
+
+                <!-- Tool reviews section -->
+                <div v-if="r.status === 'RETURNED' && toolReviewsMap[r.toolId]" class="mt-3">
+                  <ReviewList
+                    :reviews="toolReviewsMap[r.toolId] || []"
+                    :average-rating="toolAverageMap[r.toolId]"
+                    :is-loading="false"
+                  />
+                </div>
               </div>
             </div>
           </div>

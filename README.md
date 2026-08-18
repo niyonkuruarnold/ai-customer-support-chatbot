@@ -1,6 +1,7 @@
 # AI Customer Support Chatbot
 
 [![CI Pipeline](https://github.com/niyonkuruarnold/ai-customer-support-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/niyonkuruarnold/ai-customer-support-chatbot/actions)
+[![JaCoCo Coverage](https://img.shields.io/badge/JaCoCo-coverage%20report-blue)](https://github.com/niyonkuruarnold/ai-customer-support-chatbot/actions/workflows/ci.yml)
 
 An intelligent customer support chatbot system built with Spring Boot 3.3+, PostgreSQL, and Spring AI. Features RAG (Retrieval-Augmented Generation) knowledge base retrieval, automated ticketing, and human agent escalation.
 

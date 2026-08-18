@@ -51,6 +51,48 @@ jobs:
           DB_USERNAME: postgres
           DB_PASSWORD: postgres
 
+      # Upload the full JaCoCo HTML report as a downloadable artifact.
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-report
+          path: target/site/jacoco/
+          retention-days: 30
+
+      # Parse the JaCoCo XML summary, extract the line-coverage %, and
+      # create a small SVG badge that can be embedded in the README.
+      - name: Generate coverage badge
+        if: always() && hashFiles('target/site/jacoco/jacoco.xml') != ''
+        run: |
+          PCT=$(python3 -c "
+          import xml.etree.ElementTree as ET
+          root = ET.parse('target/site/jacoco/jacoco.xml').getroot()
+          for ctr in root.findall('counter'):
+              if ctr.get('type') == 'LINE':
+                  missed = int(ctr.get('missed'))
+                  covered = int(ctr.get('covered'))
+                  total = missed + covered
+                  print(round(covered / total * 100) if total else 0)
+          ")
+          COLOR=red
+          if [ "$PCT" -ge 80 ]; then COLOR=brightgreen
+          elif [ "$PCT" -ge 60 ]; then COLOR=yellow
+          fi
+          printf '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="20"><rect width="55" height="20" fill="#555"/><rect x="55" width="55" height="20" fill="%s"/><text x="28" y="14" text-anchor="middle" fill="#fff" font-size="11" font-family="Arial,sans-serif">coverage</text><text x="82" y="14" text-anchor="middle" fill="#fff" font-size="11" font-family="Arial,sans-serif">%s%%</text></svg>\n' "$COLOR" "$PCT" > badge.svg
+          echo "## JaCoCo Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "**Line coverage: ${PCT}%**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download the full HTML report from the \`jacoco-coverage-report\` artifact." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage badge
+        if: always() && hashFiles('badge.svg') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: badge.svg
+          retention-days: 30
+
   frontend:
     name: Frontend (Node 20)
     runs-on: ubuntu-latest

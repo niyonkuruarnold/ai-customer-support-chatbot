@@ -13,6 +13,7 @@ import TypingIndicator from './components/TypingIndicator.vue'
 import AgentWorkspace from './components/agent/AgentWorkspace.vue'
 import KnowledgeBaseAdmin from './components/admin/KnowledgeBaseAdmin.vue'
 import TicketDashboard from './components/admin/TicketDashboard.vue'
+import OwnerDashboard from './components/admin/OwnerDashboard.vue'
 import MyReservations from './components/reservations/MyReservations.vue'
 import { MAX_MESSAGE_LENGTH, useChatStore } from './stores/chat'
 
@@ -22,9 +23,9 @@ const store = useChatStore()
 // Persisted in localStorage and deep-linkable via ?mode=agent|knowledge|tickets.
 function initialView() {
   const param = new URLSearchParams(window.location.search).get('mode')
-  if (param === 'agent' || param === 'knowledge' || param === 'tickets' || param === 'reservations') return param
+  if (param === 'agent' || param === 'knowledge' || param === 'tickets' || param === 'reservations' || param === 'owner') return param
   const saved = localStorage.getItem('ai-support-chat:mode')
-  return saved === 'agent' || saved === 'knowledge' || saved === 'tickets' || saved === 'reservations'
+  return saved === 'agent' || saved === 'knowledge' || saved === 'tickets' || saved === 'reservations' || saved === 'owner'
     ? saved
     : 'chat'
 }
@@ -149,6 +150,12 @@ onBeforeUnmount(() => {
     @switch-to-chat="setView('chat')"
   />
 
+  <!-- Owner dashboard (?mode=owner) -->
+  <OwnerDashboard
+    v-else-if="view === 'owner'"
+    @switch-to-chat="setView('chat')"
+  />
+
   <!-- Tool reservations dashboard (?mode=reservations) -->
   <MyReservations
     v-else-if="view === 'reservations'"
@@ -270,6 +277,15 @@ onBeforeUnmount(() => {
           class="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-indigo-600"
         >
           🎧 Agent Workspace
+        </button>
+
+        <!-- Owner dashboard toggle -->
+        <button
+          type="button"
+          @click="setView('owner')"
+          class="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-orange-600"
+        >
+          🔧 Owner Dashboard
         </button>
       </div>
     </header>

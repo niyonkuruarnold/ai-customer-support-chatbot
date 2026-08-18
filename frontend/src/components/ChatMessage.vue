@@ -1,10 +1,11 @@
 <script setup>
 import { computed } from 'vue'
+import { markdownToHtml } from '../utils/markdown'
 
 const props = defineProps({
   message: {
     type: Object,
-    required: true, // { id, role, content, timestamp, status, error? }
+    required: true, // { id, role, content, timestamp, status, error?, ragUsed?, contextReferences? }
   },
 })
 
@@ -12,8 +13,16 @@ defineEmits(['retry'])
 
 const isUser = computed(() => props.message.role === 'user')
 const isAgent = computed(() => props.message.role === 'agent')
+const isAssistant = computed(() => props.message.role === 'assistant')
 const isFailed = computed(() => props.message.status === 'failed')
 const isSending = computed(() => props.message.status === 'sending')
+
+const citations = computed(() => props.message.contextReferences ?? [])
+
+/** AI responses are rendered as markdown; user/agent text stays plain + escaped. */
+const renderedContent = computed(() =>
+  isAssistant.value ? markdownToHtml(props.message.content) : null,
+)
 
 const formattedTime = computed(() =>
   new Date(props.message.timestamp).toLocaleTimeString([], {
@@ -24,7 +33,7 @@ const formattedTime = computed(() =>
 
 const bubbleClass = computed(() => {
   const base =
-    'rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-sm'
+    'rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm'
   const tone = isUser.value
     ? 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white rounded-br-md'
     : isAgent.value
@@ -59,7 +68,39 @@ const bubbleClass = computed(() => {
     <!-- Bubble + meta -->
     <div class="max-w-[85%] sm:max-w-[70%]">
       <div :class="bubbleClass" :aria-invalid="isFailed || undefined">
-        {{ message.content }}
+        <!-- AI responses: rendered markdown (escaped HTML, linkified URLs) -->
+        <div
+          v-if="renderedContent"
+          class="markdown-body"
+          v-html="renderedContent"
+        ></div>
+        <!-- User/agent text: plain, escaped -->
+        <div v-else class="whitespace-pre-wrap">{{ message.content }}</div>
+      </div>
+
+      <!-- RAG citations: clickable source documents from the pgvector store -->
+      <div
+        v-if="isAssistant && citations.length > 0"
+        class="mt-2"
+        data-test="citations"
+      >
+        <p class="text-[11px] font-medium text-slate-400">
+          Answered from the knowledge base:
+        </p>
+        <div class="mt-1 flex flex-wrap gap-1.5">
+          <a
+            v-for="ref in citations"
+            :key="ref.documentId ?? ref.title"
+            href="?mode=knowledge"
+            target="_blank"
+            rel="noopener"
+            class="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-600 transition hover:bg-indigo-100"
+            :title="`Source document (${ref.sourceType ?? 'UNKNOWN'}) — open the Knowledge Base`"
+          >
+            <span aria-hidden="true">📄</span>
+            {{ ref.title }}
+          </a>
+        </div>
       </div>
 
       <!-- Failed state: inline error + retry chip -->
@@ -122,3 +163,86 @@ const bubbleClass = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Typography for rendered markdown inside the assistant bubble. */
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+.markdown-body p {
+  margin: 0.5rem 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 0.75rem 0 0.375rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.markdown-body h1 {
+  font-size: 1.05rem;
+}
+.markdown-body h2 {
+  font-size: 1rem;
+}
+.markdown-body h3 {
+  font-size: 0.95rem;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body li {
+  margin: 0.2rem 0;
+}
+.markdown-body a {
+  color: #4f46e5;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown-body code {
+  border-radius: 0.25rem;
+  background: rgb(241 245 249);
+  padding: 0.1rem 0.3rem;
+  font-size: 0.85em;
+}
+.markdown-body pre {
+  margin: 0.5rem 0;
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: rgb(241 245 249);
+  padding: 0.75rem;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-body blockquote {
+  margin: 0.5rem 0;
+  border-left: 3px solid rgb(226 232 240);
+  padding-left: 0.75rem;
+  color: rgb(100 116 139);
+}
+.markdown-body table {
+  margin: 0.5rem 0;
+  border-collapse: collapse;
+  width: 100%;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgb(226 232 240);
+  padding: 0.3rem 0.5rem;
+}
+</style>

@@ -15,17 +15,20 @@ const apiClient = axios.create({
  * Send a chat message to the backend. The backend persists the message in a
  * session (created on the first message when sessionId is null) and returns
  * the session id plus its status so the client can continue the conversation.
+ * When the answer was grounded in retrieved knowledge base context the
+ * response also carries `ragUsed` and `contextReferences` (source documents
+ * from the pgvector store) for citation display.
  *
- * POST /chat
+ * POST /v1/chat/message
  *   body:    { message, sessionId? }
- *   returns: { response, sessionId, status }
+ *   returns: { response, sessionId, status, ragUsed, contextReferences }
  *
  * @param {string} message
  * @param {string|null} sessionId
- * @returns {Promise<{response: string, sessionId: number|null, status: string}>}
+ * @returns {Promise<{response: string, sessionId: number|null, status: string, ragUsed: boolean, contextReferences: Array}>}
  */
 export async function sendChatMessage(message, sessionId) {
-  const { data } = await apiClient.post('/chat', { message, sessionId })
+  const { data } = await apiClient.post('/v1/chat/message', { message, sessionId })
   return data
 }
 
@@ -34,7 +37,7 @@ export async function sendChatMessage(message, sessionId) {
  * frontend: restores history on load and picks up AGENT replies after a
  * human handoff.
  *
- * GET /chat/session/{id}
+ * GET /v1/chat/session/{id}
  *   returns: { id, status, messages: [{ id, sender, content, timestamp }] }
  *
  * Throws when the session does not exist (404) so callers can fall back.
@@ -42,14 +45,14 @@ export async function sendChatMessage(message, sessionId) {
  * @param {number|string} sessionId
  */
 export async function fetchSessionInfo(sessionId) {
-  const { data } = await apiClient.get(`/chat/session/${sessionId}`)
+  const { data } = await apiClient.get(`/v1/chat/session/${sessionId}`)
   return data
 }
 
 /**
  * Ask the backend to reset/clear its chat session state.
  *
- * DELETE /chat/session
+ * DELETE /v1/chat/session
  *
  * Resolves quietly when the backend has no such endpoint, so clearing the
  * UI never depends on the backend being reachable.
@@ -58,7 +61,7 @@ export async function fetchSessionInfo(sessionId) {
  */
 export async function resetBackendSession() {
   try {
-    await apiClient.delete('/chat/session')
+    await apiClient.delete('/v1/chat/session')
   } catch (err) {
     if (
       err.response &&

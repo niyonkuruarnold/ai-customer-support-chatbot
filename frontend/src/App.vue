@@ -8,6 +8,7 @@ import {
   watch,
 } from 'vue'
 import ChatMessage from './components/ChatMessage.vue'
+import ChatWindow from './components/ChatWindow.vue'
 import TypingIndicator from './components/TypingIndicator.vue'
 import AgentWorkspace from './components/agent/AgentWorkspace.vue'
 import KnowledgeBaseAdmin from './components/admin/KnowledgeBaseAdmin.vue'
@@ -146,6 +147,9 @@ onBeforeUnmount(() => {
     v-else-if="view === 'tickets'"
     @switch-to-chat="setView('chat')"
   />
+
+  <!-- Collapsible chat widget on the admin/agent views -->
+  <ChatWindow v-if="view !== 'chat'" />
 
   <!-- Customer chat -->
   <div

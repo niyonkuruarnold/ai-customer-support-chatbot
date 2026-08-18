@@ -10,11 +10,7 @@ import com.codafriqa.ai_customer_support_chatbot.repository.ChatMessageRepositor
 import com.codafriqa.ai_customer_support_chatbot.repository.ChatSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.chat.prompt.SystemPromptTemplate;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -51,24 +47,24 @@ public class ChatService {
 
             """;
 
-    private final ChatModel chatModel;
+    private final ChatClient chatClient;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
     private final EscalationService escalationService;
-    private final KnowledgeBaseService knowledgeBaseService;
+    private final RagService ragService;
     private final UserService userService;
 
-    public ChatService(ChatModel chatModel,
+    public ChatService(ChatClient.Builder chatClientBuilder,
                        ChatSessionRepository sessionRepository,
                        ChatMessageRepository messageRepository,
                        EscalationService escalationService,
-                       KnowledgeBaseService knowledgeBaseService,
+                       RagService ragService,
                        UserService userService) {
-        this.chatModel = chatModel;
+        this.chatClient = chatClientBuilder.build();
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.escalationService = escalationService;
-        this.knowledgeBaseService = knowledgeBaseService;
+        this.ragService = ragService;
         this.userService = userService;
     }
 
@@ -90,23 +86,26 @@ public class ChatService {
         messageRepository.save(new ChatMessage(session.getId(), "USER", userMessage));
 
         boolean escalationTrigger = escalationService.isEscalationRequest(userMessage);
-        String responseText;
+        GenerationResult generation;
         if ("ESCALATED".equals(session.getStatus())) {
             // Human agent active — no AI generation
-            responseText = AGENT_ACTIVE_ACK;
+            generation = new GenerationResult(AGENT_ACTIVE_ACK, false, List.of());
         } else if (escalationTrigger) {
-            responseText = HANDOFF_ACK;
+            generation = new GenerationResult(HANDOFF_ACK, false, List.of());
         } else {
-            responseText = generateResponse(userMessage);
+            generation = generateResponse(userMessage);
         }
-        messageRepository.save(new ChatMessage(session.getId(), "AI", responseText));
+        messageRepository.save(new ChatMessage(session.getId(), "AI", generation.text()));
 
         if (escalationTrigger) {
             List<ChatMessage> transcript = messageRepository.findBySessionIdOrderByTimestampAsc(session.getId());
             escalationService.escalate(session, userMessage, transcript);
         }
 
-        return new ChatResponseDto(responseText, session.getId(), session.getStatus());
+        ChatResponseDto response = new ChatResponseDto(generation.text(), session.getId(), session.getStatus());
+        response.setRagUsed(generation.ragUsed());
+        response.setContextReferences(generation.references());
+        return response;
     }
 
     /** Full session state (status + transcript) for the customer-facing frontend. */
@@ -134,35 +133,49 @@ public class ChatService {
 
     /**
      * AI response generation with RAG: the top-K relevant knowledge base
-     * chunks are retrieved for the user's message and appended to the system
-     * prompt. Falls back to a plain (context-free) prompt when retrieval is
-     * unavailable, and to a friendly fallback message when the model itself
-     * cannot be reached (e.g. missing OPENAI_API_KEY).
+     * chunks are retrieved for the user's message (RagService.retrieveContext)
+     * and appended to the system prompt. Falls back to a plain (context-free)
+     * prompt when retrieval is unavailable, and to a friendly fallback message
+     * when the model itself cannot be reached (e.g. missing OPENAI_API_KEY).
      */
-    private String generateResponse(String userMessage) {
-        // Retrieval never throws: KnowledgeBaseService.retrieveContext returns ""
-        // when the vector store is unavailable or has nothing relevant.
+    private GenerationResult generateResponse(String userMessage) {
+        // Retrieval never throws: RagService.retrieveContext returns an empty
+        // context when the vector store is unavailable or has nothing relevant.
         // (Plain concatenation, not String.formatted, so KB text containing '%'
         // cannot raise an UnknownFormatConversionException outside the try below.)
-        String context = knowledgeBaseService.retrieveContext(userMessage);
-        String systemInstruction = context.isBlank()
-                ? BASE_SYSTEM_INSTRUCTION
-                : BASE_SYSTEM_INSTRUCTION + KNOWLEDGE_SECTION + context;
+        RagService.RagContext rag = ragService.retrieveContext(userMessage);
+        boolean ragUsed = !rag.contextText().isBlank();
+        String systemInstruction = ragUsed
+                ? BASE_SYSTEM_INSTRUCTION + KNOWLEDGE_SECTION + rag.contextText()
+                : BASE_SYSTEM_INSTRUCTION;
 
         try {
-            Message systemMessage = new SystemPromptTemplate(systemInstruction).createMessage();
-            Message userMsg = new UserMessage(userMessage);
-            Prompt prompt = new Prompt(List.of(systemMessage, userMsg));
-            return chatModel.call(prompt).getResult().getOutput().getText();
+            String answer = chatClient.prompt()
+                    .system(systemInstruction)
+                    .user(userMessage)
+                    .call()
+                    .content();
+            List<ChatResponseDto.ContextReference> references = rag.references().stream()
+                    .map(r -> new ChatResponseDto.ContextReference(
+                            r.documentId(), r.title(), r.sourceType()))
+                    .toList();
+            return new GenerationResult(answer, ragUsed, references);
         } catch (Exception e) {
             // Log the exact failure (class + message + full stack trace via the
             // throwable argument) so the root cause is visible in the app log,
             // e.g. a 401 from a missing or invalid OPENAI_API_KEY.
             log.warn("AI response generation failed ({}: {}); returning fallback message",
                     e.getClass().getSimpleName(), e.getMessage(), e);
-            return "I'm sorry, I'm having trouble processing your request right now. " +
-                   "Please try again shortly, or ask to speak with a human support agent.";
+            return new GenerationResult(
+                    "I'm sorry, I'm having trouble processing your request right now. " +
+                    "Please try again shortly, or ask to speak with a human support agent.",
+                    false, List.of());
         }
+    }
+
+    /** Response text + whether it was grounded in retrieved context (+ source references). */
+    private record GenerationResult(String text, boolean ragUsed,
+                                    List<ChatResponseDto.ContextReference> references) {
     }
 
     private ChatMessageDto toMessageDto(ChatMessage message) {

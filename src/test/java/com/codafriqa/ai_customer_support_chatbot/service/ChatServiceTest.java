@@ -11,15 +11,17 @@ import com.codafriqa.ai_customer_support_chatbot.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,15 +33,31 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Verifies the chat handoff behavior: the AI answers while the session is
- * ACTIVE, but once the session is ESCALATED (a human agent is active)
- * automated AI responses are paused and a short acknowledgement is returned.
+ * Verifies the chat behavior around handoff and RAG:
+ * <ul>
+ *   <li>The AI answers (via ChatClient) while the session is ACTIVE, with the
+ *       retrieved knowledge base context injected into the system prompt and
+ *       surfaced as context references.</li>
+ *   <li>Once the session is ESCALATED (a human agent is active) automated AI
+ *       responses are PAUSED and a short acknowledgement is returned.</li>
+ *   <li>An escalation trigger returns the handoff acknowledgement and
+ *       escalates the session/ticket.</li>
+ * </ul>
  */
 @ExtendWith(MockitoExtension.class)
 class ChatServiceTest {
 
     @Mock
-    private ChatModel chatModel;
+    private ChatClient.Builder chatClientBuilder;
+
+    @Mock
+    private ChatClient chatClient;
+
+    @Mock
+    private ChatClient.ChatClientRequestSpec requestSpec;
+
+    @Mock
+    private ChatClient.CallResponseSpec callResponseSpec;
 
     @Mock
     private ChatSessionRepository sessionRepository;
@@ -74,16 +92,43 @@ class ChatServiceTest {
         }
     }
 
+    /** Minimal VectorStore returning a fixed result list (Mockito can't mock this interface on this JDK). */
+    static class StubVectorStore implements VectorStore {
+        private final List<Document> results;
+
+        StubVectorStore(List<Document> results) {
+            this.results = results;
+        }
+
+        @Override
+        public void add(List<Document> documents) {
+        }
+
+        @Override
+        public void delete(List<String> ids) {
+        }
+
+        @Override
+        public void delete(Filter.Expression expression) {
+        }
+
+        @Override
+        public List<Document> similaritySearch(SearchRequest request) {
+            return results;
+        }
+    }
+
     @BeforeEach
     void setUp() {
+        when(chatClientBuilder.build()).thenReturn(chatClient);
         UserService userService = new UserService(userRepository);
-        // KnowledgeBaseService.retrieveContext() is designed to never throw —
-        // a null VectorStore makes it take the graceful "no context" path and
-        // return "", which is exactly the behavior ChatService relies on.
-        KnowledgeBaseService knowledgeBaseService = new KnowledgeBaseService(null, null, null);
+        // RagService with a null VectorStore takes the graceful "no context"
+        // path (retrieval never throws). The RAG test below swaps in a real
+        // inline StubVectorStore.
+        RagService ragService = new RagService(null, chatClientBuilder, null);
         service = new ChatService(
-                chatModel, sessionRepository, messageRepository,
-                escalationService, knowledgeBaseService, userService);
+                chatClientBuilder, sessionRepository, messageRepository,
+                escalationService, ragService, userService);
     }
 
     private void stubInfrastructure(boolean escalated) {
@@ -104,10 +149,11 @@ class ChatServiceTest {
     }
 
     private void stubAiAnswer(String answer) {
-        AssistantMessage assistant = new AssistantMessage(answer);
-        Generation generation = new Generation(assistant);
-        ChatResponse response = new ChatResponse(List.of(generation));
-        when(chatModel.call(any(Prompt.class))).thenReturn(response);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(any(String.class))).thenReturn(requestSpec);
+        when(requestSpec.user(any(String.class))).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(callResponseSpec);
+        when(callResponseSpec.content()).thenReturn(answer);
     }
 
     @Test
@@ -119,20 +165,48 @@ class ChatServiceTest {
 
         assertEquals("Here is your answer", result.getResponse());
         assertEquals("ACTIVE", result.getStatus());
-        verify(chatModel).call(any(Prompt.class));
+        verify(chatClient).prompt();
+        assertFalse(result.isRagUsed());
+        assertTrue(result.getContextReferences().isEmpty());
         assertFalse(escalationService.escalateCalled);
+    }
+
+    @Test
+    void retrievedContextIsInjectedIntoTheSystemPromptAndReferenced() {
+        stubInfrastructure(false);
+        stubAiAnswer("Grounded answer");
+
+        Document doc = new Document("Returns are accepted within 30 days of delivery.",
+                Map.of("documentId", 42L, "title", "Returns Policy", "sourceType", "TEXT"));
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), chatClientBuilder, null);
+        service = new ChatService(
+                chatClientBuilder, sessionRepository, messageRepository,
+                escalationService, ragService, new UserService(userRepository));
+
+        var result = service.sendMessage("What is your return policy?", null);
+
+        assertTrue(result.isRagUsed());
+        assertEquals(1, result.getContextReferences().size());
+        assertEquals(42L, result.getContextReferences().get(0).documentId());
+        assertEquals("Returns Policy", result.getContextReferences().get(0).title());
+        assertEquals("TEXT", result.getContextReferences().get(0).sourceType());
+
+        // The retrieved chunk must be injected into the system prompt.
+        ArgumentCaptor<String> systemCaptor = ArgumentCaptor.forClass(String.class);
+        verify(requestSpec).system(systemCaptor.capture());
+        assertTrue(systemCaptor.getValue().contains("Returns are accepted within 30 days of delivery."));
     }
 
     @Test
     void escalatedSessionPausesAiAndAcksTheMessage() {
         stubInfrastructure(true);
-        // chatModel is intentionally left unstubbed — it must never be called
+        // chatClient is intentionally left unstubbed — it must never be called
 
         var result = service.sendMessage("Where is my order?", 7L);
 
         assertTrue(result.getResponse().contains("sent to the agent"));
         assertEquals("ESCALATED", result.getStatus());
-        verify(chatModel, never()).call(any(Prompt.class));
+        verify(chatClient, never()).prompt();
         assertFalse(escalationService.escalateCalled);
     }
 
@@ -145,7 +219,7 @@ class ChatServiceTest {
         var result = service.sendMessage("I want to talk to a human agent", null);
 
         assertTrue(result.getResponse().contains("connected to a human support agent"));
-        verify(chatModel, never()).call(any(Prompt.class));
+        verify(chatClient, never()).prompt();
         assertTrue(escalationService.escalateCalled);
     }
 
@@ -159,6 +233,6 @@ class ChatServiceTest {
 
         assertTrue(result.getResponse().contains("sent to the agent"));
         assertEquals("ESCALATED", result.getStatus());
-        verify(chatModel, never()).call(any(Prompt.class));
+        verify(chatClient, never()).prompt();
     }
 }

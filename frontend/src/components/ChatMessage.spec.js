@@ -42,6 +42,82 @@ describe('ChatMessage', () => {
     expect(wrapper.text()).toContain('Support AI')
   })
 
+  it('renders markdown formatting in assistant responses', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: makeMessage({
+          role: 'assistant',
+          content: '**Yes!** Here are the steps:\n\n1. Open settings\n2. Save',
+        }),
+      },
+    })
+
+    const body = wrapper.find('.markdown-body')
+    expect(body.exists()).toBe(true)
+    expect(body.find('strong').text()).toBe('Yes!')
+    expect(body.findAll('li').length).toBe(2)
+    // Raw markdown syntax must not leak through
+    expect(body.text()).not.toContain('**Yes!**')
+  })
+
+  it('escapes raw HTML in assistant content', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: makeMessage({
+          role: 'assistant',
+          content: 'Hello <script>alert(1)</script>',
+        }),
+      },
+    })
+
+    const body = wrapper.find('.markdown-body')
+    expect(body.find('script').exists()).toBe(false)
+    expect(body.text()).toContain('<script>alert(1)</script>')
+  })
+
+  it('renders clickable knowledge base citations for assistant messages', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: makeMessage({
+          role: 'assistant',
+          content: 'Returns are accepted within 30 days.',
+          ragUsed: true,
+          contextReferences: [
+            { documentId: 3, title: 'Returns Policy', sourceType: 'TEXT' },
+            { documentId: 7, title: 'Shipping FAQ', sourceType: 'MARKDOWN' },
+          ],
+        }),
+      },
+    })
+
+    const citations = wrapper.find('[data-test="citations"]')
+    expect(citations.exists()).toBe(true)
+    const links = citations.findAll('a')
+    expect(links).toHaveLength(2)
+    expect(links[0].text()).toContain('Returns Policy')
+    expect(links[0].attributes('href')).toBe('?mode=knowledge')
+    expect(links[1].text()).toContain('Shipping FAQ')
+  })
+
+  it('does not render citations when there are no context references', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: makeMessage({ role: 'assistant', content: 'No citations here' }),
+      },
+    })
+    expect(wrapper.find('[data-test="citations"]').exists()).toBe(false)
+  })
+
+  it('does not render user content as markdown', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: makeMessage({ content: 'Is **this** bold?' }),
+      },
+    })
+    expect(wrapper.find('.markdown-body').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Is **this** bold?')
+  })
+
   it('renders agent messages with agent styling and label', () => {
     const wrapper = mount(ChatMessage, {
       props: {

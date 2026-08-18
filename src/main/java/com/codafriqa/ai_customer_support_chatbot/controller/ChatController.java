@@ -10,10 +10,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * REST Controller for handling chat requests from the Vue.js frontend
+ * REST Controller for handling chat requests from the Vue.js frontend.
+ *
+ * <p>Mapped under both /api/chat and /api/v1/chat (with the message POST
+ * also reachable as /api/v1/chat/message) following the codebase convention
+ * of unprefixed paths with /api/v1 aliases matching the API spec — the
+ * frontend keeps using /api/chat, the spec path /api/v1/chat/message also
+ * works.
  */
 @RestController
-@RequestMapping("/api/chat")
+@RequestMapping({"/api/chat", "/api/v1/chat"})
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 public class ChatController {
 
@@ -31,7 +37,7 @@ public class ChatController {
      * @param request ChatRequestDto with validated message and optional sessionId
      * @return ChatResponseDto with AI response, sessionId and session status
      */
-    @PostMapping
+    @PostMapping({"", "/message"})
     public ResponseEntity<ChatResponseDto> sendMessage(@Valid @RequestBody ChatRequestDto request) {
         ChatResponseDto response = chatService.sendMessage(request.getMessage(), request.getSessionId());
         return ResponseEntity.ok(response);

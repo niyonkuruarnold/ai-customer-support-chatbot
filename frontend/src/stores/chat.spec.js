@@ -139,6 +139,38 @@ describe('chat store', () => {
       store.stopPolling()
     })
 
+    it('captures RAG metadata from the response onto the assistant message', async () => {
+      sendChatMessage.mockResolvedValue(
+        okResponse({
+          ragUsed: true,
+          contextReferences: [
+            { documentId: 3, title: 'Returns Policy', sourceType: 'TEXT' },
+          ],
+        }),
+      )
+
+      await store.sendMessage('What is the return policy?')
+
+      expect(store.messages[1]).toMatchObject({
+        role: 'assistant',
+        ragUsed: true,
+        contextReferences: [
+          { documentId: 3, title: 'Returns Policy', sourceType: 'TEXT' },
+        ],
+      })
+      store.stopPolling()
+    })
+
+    it('defaults RAG metadata to empty when the response has none', async () => {
+      sendChatMessage.mockResolvedValue(okResponse())
+
+      await store.sendMessage('Hello')
+
+      expect(store.messages[1].ragUsed).toBe(false)
+      expect(store.messages[1].contextReferences).toEqual([])
+      store.stopPolling()
+    })
+
     it('marks the message as failed with an error on API failure', async () => {
       sendChatMessage.mockRejectedValueOnce(new Error('boom'))
 
@@ -285,6 +317,47 @@ describe('chat store', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+
+    it('preserves RAG metadata on assistant messages across poll merges', async () => {
+      sendChatMessage.mockResolvedValue(
+        okResponse({
+          sessionId: 9,
+          ragUsed: true,
+          contextReferences: [
+            { documentId: 3, title: 'Returns Policy', sourceType: 'TEXT' },
+          ],
+        }),
+      )
+      await store.sendMessage('What is the return policy?')
+      store.stopPolling()
+
+      // The session endpoint returns the same transcript without RAG fields
+      fetchSessionInfo.mockResolvedValue({
+        id: 9,
+        status: 'ACTIVE',
+        messages: [
+          {
+            id: 1,
+            sender: 'USER',
+            content: 'What is the return policy?',
+            timestamp: '2026-08-15T10:00:00',
+          },
+          {
+            id: 2,
+            sender: 'AI',
+            content: 'Returns are accepted within 30 days.',
+            timestamp: '2026-08-15T10:00:01',
+          },
+        ],
+      })
+
+      await store.pollSession()
+
+      const ai = store.messages.find((m) => m.role === 'assistant')
+      expect(ai.ragUsed).toBe(true)
+      expect(ai.contextReferences).toHaveLength(1)
+      expect(ai.contextReferences[0].documentId).toBe(3)
     })
   })
 

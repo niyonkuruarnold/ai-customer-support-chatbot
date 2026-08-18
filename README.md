@@ -14,6 +14,13 @@ An intelligent customer support chatbot system built with Spring Boot 3.3+, Post
 - Basic REST API controllers (User, Chat, Test endpoints)
 - DTO layer for API request/response handling
 
+### Week 3: RAG Pipeline ✅
+- **pgvector configuration**: `spring.ai.vectorstore.pgvector.initialize-schema=true` (schema auto-created on boot) and 1536-dimension embeddings (OpenAI `text-embedding-3-small`) — verified in the boot log (`Initializing PGVectorStore schema for table: vector_store`)
+- **`RagService`**: dedicated RAG service injecting the pgvector `VectorStore` + `ChatClient.Builder` — ingestion (chunk + store via the knowledge base pipeline) and `retrieveContext` (top-K similarity search, never throws, falls back to a plain prompt)
+- **Ingestion endpoint**: `POST /api/v1/rag/ingest` (also `/api/rag/ingest`) — `{ "title": "...", "content": "..." }`; without `OPENAI_API_KEY` it fails fast with a structured 400 (embedding generation) and rolls back cleanly
+- **Context-aware chat**: each customer message runs a vector similarity search (top-4 chunks), the retrieved context is injected into the OpenAI system prompt, and the response now carries **`ragUsed` + `contextReferences`** (document id / title / source type) for citation metadata
+- Chat endpoint reachable at `POST /api/v1/chat/message` (spec path) and `POST /api/chat` (frontend path), plus `/api/v1/chat`
+
 ### Week 4: Knowledge Base & RAG ✅
 - Document ingestion pipeline: text, Markdown and PDF support documents parsed with Spring AI document readers
 - Token-based chunking with Spring AI `TokenTextSplitter`, embedded and stored in PostgreSQL via the pgvector `VectorStore`
@@ -401,9 +408,23 @@ Proprietary - CODAFRIQA AI
    prompt is enriched with that context, so the AI answers from the
    knowledge base (RAG).
 
+Programmatic ingestion is also available:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/rag/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Returns Policy", "content": "Customers may return items within 30 days..."}'
+```
+
+Chat responses include RAG metadata — `ragUsed` (whether the answer was
+grounded in retrieved context) and `contextReferences` (the source document
+id / title / type per retrieved chunk), which the frontend can render as
+citations.
+
 > **Note:** embedding generation requires `OPENAI_API_KEY`. Without a key,
 > uploads fail fast with a clear 400 (and roll back cleanly — no partial
-> documents), and the chat gracefully answers without KB context.
+> documents), and the chat gracefully answers without KB context (retrieval
+> logs the exact failure and falls back to a plain prompt).
 
 ## Human Handoff Flow
 

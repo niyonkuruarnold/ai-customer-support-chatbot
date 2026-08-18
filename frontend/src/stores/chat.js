@@ -40,6 +40,11 @@ function mapServerMessage(m) {
     content: m.content,
     timestamp: parseTimestamp(m.timestamp),
     status: 'sent',
+    // The backend session endpoint does not carry RAG metadata, so these
+    // stay empty for restored messages; live responses populate them via
+    // the send path (and poll merges preserve them, see pollSession).
+    ragUsed: false,
+    contextReferences: [],
   }
 }
 
@@ -131,14 +136,18 @@ export const useChatStore = defineStore('chat', {
      * Push a message with an initial status and persist.
      * Returns the reactive proxy (not the raw object) so callers can mutate
      * the message's status later and still trigger component updates.
+     *
+     * `extra` merges additional fields onto the message — e.g. RAG metadata
+     * (ragUsed / contextReferences) for assistant responses.
      */
-    addMessage(role, content, status = 'sent') {
+    addMessage(role, content, status = 'sent', extra = {}) {
       const message = {
         id: nextId(),
         role,
         content,
         timestamp: Date.now(),
         status,
+        ...extra,
       }
       this.messages.push(message)
       this.persist()
@@ -173,7 +182,10 @@ export const useChatStore = defineStore('chat', {
           this.persistSession()
         }
         if (data.status) this.sessionStatus = data.status
-        this.addMessage('assistant', data.response)
+        this.addMessage('assistant', data.response, 'sent', {
+          ragUsed: data.ragUsed ?? false,
+          contextReferences: data.contextReferences ?? [],
+        })
         this.startPolling()
         return userMessage.id
       } catch (err) {
@@ -237,7 +249,24 @@ export const useChatStore = defineStore('chat', {
         const info = await fetchSessionInfo(this.sessionId)
         if (info.status) this.sessionStatus = info.status
 
-        const serverMessages = (info.messages ?? []).map(mapServerMessage)
+        // The session endpoint does not return RAG metadata, so carry the
+        // ragUsed/contextReferences over from the local copy of each message
+        // — matched by serverId when known, else by identical assistant
+        // content (locally-sent messages have no serverId yet) — so
+        // citations survive poll merges.
+        const serverMessages = (info.messages ?? []).map((m) => {
+          const mapped = mapServerMessage(m)
+          const local = this.messages.find(
+            (l) =>
+              l.serverId === m.id ||
+              (l.role === 'assistant' && l.content === m.content),
+          )
+          if (local) {
+            mapped.ragUsed = local.ragUsed
+            mapped.contextReferences = local.contextReferences
+          }
+          return mapped
+        })
         // Keep locally failed messages so the customer can retry them
         const localFailed = this.messages.filter((m) => m.status === 'failed')
         const next = serverMessages.concat(localFailed)

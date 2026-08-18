@@ -696,6 +696,47 @@ cd frontend && npm test
 mvn clean verify && cd frontend && npm ci && npm run build && npm test
 ```
 
+## Code Coverage
+
+This project uses [JaCoCo](https://www.jacoco.org/) (v0.8.12) for automated code coverage reporting. The Maven plugin instruments bytecode during test execution and generates HTML/XML/CSV reports.
+
+### Generating Reports Locally
+
+```bash
+# Run tests + generate coverage report
+mvn clean test
+
+# Open the HTML report in your browser
+# target/site/jacoco/index.html
+```
+
+### CI Coverage Artifacts
+
+Every CI run on `main` and pull requests:
+1. Generates the full JaCoCo HTML report
+2. Uploads it as the `jacoco-coverage-report` artifact (retained 30 days)
+3. Parses `jacoco.xml` to extract line-coverage % and writes it to the GitHub Actions step summary
+4. Generates an SVG badge (uploaded as `coverage-badge` artifact)
+
+### Coverage Report Contents
+
+| Format | Path | Description |
+|--------|------|-------------|
+| **HTML** | `target/site/jacoco/index.html` | Visual drill-down by package/class/method |
+| **XML** | `target/site/jacoco/jacoco.xml` | Machine-readable; used by CI to compute % |
+| **CSV** | `target/site/jacoco/jacoco.csv` | Tabular per-class coverage data |
+
+### CI Coverage Summary
+
+The workflow parses the JaCoCo XML summary and outputs a summary like:
+
+```
+## JaCoCo Coverage
+**Line coverage: XX%**
+```
+
+A coverage badge (green/yellow/red based on thresholds: >=80% green, >=60% yellow, <60% red) is generated and uploaded as a downloadable artifact.
+
 ### Manual Testing with curl
 
 ```bash

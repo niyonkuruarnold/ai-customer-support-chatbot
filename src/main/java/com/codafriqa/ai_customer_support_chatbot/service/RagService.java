@@ -1,6 +1,7 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
 import com.codafriqa.ai_customer_support_chatbot.dto.KnowledgeDocumentDto;
+import com.codafriqa.ai_customer_support_chatbot.dto.SourceCitationDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -109,6 +110,17 @@ public class RagService {
     public record RagContext(String contextText, List<ContextReference> references) {
         static RagContext empty() {
             return new RagContext("", List.of());
+        }
+
+        /**
+         * Map the internal context references into DTOs suitable for the
+         * response payload. Each reference becomes a {@link SourceCitationDto}
+         * carrying sourceId, title, and sourceType.
+         */
+        public List<SourceCitationDto> toCitations() {
+            return references.stream()
+                    .map(r -> new SourceCitationDto(r.documentId(), r.title(), r.sourceType()))
+                    .toList();
         }
     }
 

@@ -2,6 +2,7 @@ package com.codafriqa.ai_customer_support_chatbot.service;
 
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatMessageDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatResponseDto;
+import com.codafriqa.ai_customer_support_chatbot.dto.SourceCitationDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.SessionInfoDto;
 import com.codafriqa.ai_customer_support_chatbot.exception.ResourceNotFoundException;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatMessage;
@@ -89,9 +90,9 @@ public class ChatService {
         GenerationResult generation;
         if ("ESCALATED".equals(session.getStatus())) {
             // Human agent active — no AI generation
-            generation = new GenerationResult(AGENT_ACTIVE_ACK, false, List.of());
+            generation = new GenerationResult(AGENT_ACTIVE_ACK, false, List.of(), List.of());
         } else if (escalationTrigger) {
-            generation = new GenerationResult(HANDOFF_ACK, false, List.of());
+            generation = new GenerationResult(HANDOFF_ACK, false, List.of(), List.of());
         } else {
             generation = generateResponse(userMessage);
         }
@@ -105,6 +106,7 @@ public class ChatService {
         ChatResponseDto response = new ChatResponseDto(generation.text(), session.getId(), session.getStatus());
         response.setRagUsed(generation.ragUsed());
         response.setContextReferences(generation.references());
+        response.setSourceCitations(generation.citations());
         return response;
     }
 
@@ -159,7 +161,8 @@ public class ChatService {
                     .map(r -> new ChatResponseDto.ContextReference(
                             r.documentId(), r.title(), r.sourceType()))
                     .toList();
-            return new GenerationResult(answer, ragUsed, references);
+            List<SourceCitationDto> citations = rag.toCitations();
+            return new GenerationResult(answer, ragUsed, references, citations);
         } catch (Exception e) {
             // Log the exact failure (class + message + full stack trace via the
             // throwable argument) so the root cause is visible in the app log,
@@ -169,13 +172,14 @@ public class ChatService {
             return new GenerationResult(
                     "I'm sorry, I'm having trouble processing your request right now. " +
                     "Please try again shortly, or ask to speak with a human support agent.",
-                    false, List.of());
+                    false, List.of(), List.of());
         }
     }
 
-    /** Response text + whether it was grounded in retrieved context (+ source references). */
+    /** Response text + whether it was grounded in retrieved context (+ source references + citations). */
     private record GenerationResult(String text, boolean ragUsed,
-                                    List<ChatResponseDto.ContextReference> references) {
+                                    List<ChatResponseDto.ContextReference> references,
+                                    List<SourceCitationDto> citations) {
     }
 
     private ChatMessageDto toMessageDto(ChatMessage message) {

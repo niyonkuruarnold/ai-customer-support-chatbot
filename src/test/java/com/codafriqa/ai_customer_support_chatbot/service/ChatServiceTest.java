@@ -19,6 +19,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -191,6 +192,12 @@ class ChatServiceTest {
         assertEquals("Returns Policy", result.getContextReferences().get(0).title());
         assertEquals("TEXT", result.getContextReferences().get(0).sourceType());
 
+        // Source citations should also be populated.
+        assertEquals(1, result.getSourceCitations().size());
+        assertEquals(42L, result.getSourceCitations().get(0).sourceId());
+        assertEquals("Returns Policy", result.getSourceCitations().get(0).title());
+        assertEquals("TEXT", result.getSourceCitations().get(0).sourceType());
+
         // The retrieved chunk must be injected into the system prompt.
         ArgumentCaptor<String> systemCaptor = ArgumentCaptor.forClass(String.class);
         verify(requestSpec).system(systemCaptor.capture());
@@ -255,6 +262,7 @@ class ChatServiceTest {
         assertEquals("Answer without knowledge base context", result.getResponse());
         assertFalse(result.isRagUsed());
         assertTrue(result.getContextReferences().isEmpty());
+        assertTrue(result.getSourceCitations().isEmpty());
 
         // The system prompt must NOT contain the knowledge base section.
         ArgumentCaptor<String> systemCaptor = ArgumentCaptor.forClass(String.class);
@@ -273,6 +281,7 @@ class ChatServiceTest {
         assertTrue(result.getResponse().contains("sent to the agent"));
         assertEquals("ESCALATED", result.getStatus());
         verify(chatClient, never()).prompt();
+        assertTrue(result.getSourceCitations().isEmpty());
         assertFalse(escalationService.escalateCalled);
     }
 

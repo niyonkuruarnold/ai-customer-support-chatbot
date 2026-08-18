@@ -29,17 +29,26 @@ public class ChatResponseDto {
      */
     private List<ContextReference> contextReferences;
 
+    /**
+     * Structured source citations extracted from retrieved RAG context.
+     * Each entry identifies a knowledge document (id, title, source type)
+     * that contributed chunks to the AI response.
+     */
+    private List<SourceCitationDto> sourceCitations;
+
     /** A source document referenced by the retrieved chunks. */
     public record ContextReference(Long documentId, String title, String sourceType) {
     }
 
     public ChatResponseDto() {
         this.contextReferences = List.of();
+        this.sourceCitations = List.of();
     }
 
     public ChatResponseDto(String response) {
         this.response = response;
         this.contextReferences = List.of();
+        this.sourceCitations = List.of();
     }
 
     public ChatResponseDto(String response, Long sessionId, String status) {
@@ -47,6 +56,7 @@ public class ChatResponseDto {
         this.sessionId = sessionId;
         this.status = status;
         this.contextReferences = List.of();
+        this.sourceCitations = List.of();
     }
 
     public String getResponse() {
@@ -87,5 +97,13 @@ public class ChatResponseDto {
 
     public void setContextReferences(List<ContextReference> contextReferences) {
         this.contextReferences = contextReferences == null ? List.of() : contextReferences;
+    }
+
+    public List<SourceCitationDto> getSourceCitations() {
+        return sourceCitations;
+    }
+
+    public void setSourceCitations(List<SourceCitationDto> sourceCitations) {
+        this.sourceCitations = sourceCitations == null ? List.of() : sourceCitations;
     }
 }

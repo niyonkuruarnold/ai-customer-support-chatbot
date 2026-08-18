@@ -185,6 +185,7 @@ export const useChatStore = defineStore('chat', {
         this.addMessage('assistant', data.response, 'sent', {
           ragUsed: data.ragUsed ?? false,
           contextReferences: data.contextReferences ?? [],
+          sources: data.sourceCitations ?? [],
         })
         this.startPolling()
         return userMessage.id
@@ -264,6 +265,7 @@ export const useChatStore = defineStore('chat', {
           if (local) {
             mapped.ragUsed = local.ragUsed
             mapped.contextReferences = local.contextReferences
+            mapped.sources = local.sources
           }
           return mapped
         })

@@ -106,6 +106,50 @@ describe('ChatMessage', () => {
       },
     })
     expect(wrapper.find('[data-test="citations"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="source-citations"]').exists()).toBe(false)
+  })
+
+  it('renders collapsible source citations when sources are present', async () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: makeMessage({
+          role: 'assistant',
+          content: 'Here is your answer.',
+          sources: [
+            { sourceId: 10, title: 'Returns Policy', sourceType: 'TEXT' },
+            { sourceId: 20, title: 'Shipping Guide', sourceType: 'PDF' },
+          ],
+        }),
+      },
+    })
+
+    const citationsEl = wrapper.find('[data-test="source-citations"]')
+    expect(citationsEl.exists()).toBe(true)
+    expect(citationsEl.text()).toContain('2 sources cited')
+
+    // Initially collapsed — source badges not visible
+    expect(citationsEl.findAll('span').length).toBe(0)
+
+    // Click to expand
+    await citationsEl.find('button').trigger('click')
+    // Badges are inline-flex spans containing icon + title text
+    const badges = citationsEl.findAll('.inline-flex.items-center.gap-1.rounded-full')
+    expect(badges.length).toBe(2)
+    expect(badges[0].text()).toContain('Returns Policy')
+    expect(badges[1].text()).toContain('Shipping Guide')
+  })
+
+  it('does not render source citations for non-assistant messages', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: makeMessage({
+          role: 'user',
+          content: 'Hello',
+          sources: [{ sourceId: 1, title: 'Doc', sourceType: 'TEXT' }],
+        }),
+      },
+    })
+    expect(wrapper.find('[data-test="source-citations"]').exists()).toBe(false)
   })
 
   it('does not render user content as markdown', () => {

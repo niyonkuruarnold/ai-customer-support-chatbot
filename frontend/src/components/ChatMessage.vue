@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { markdownToHtml } from '../utils/markdown'
 
 const props = defineProps({
@@ -18,6 +18,10 @@ const isFailed = computed(() => props.message.status === 'failed')
 const isSending = computed(() => props.message.status === 'sending')
 
 const citations = computed(() => props.message.contextReferences ?? [])
+const sources = computed(() => props.message.sources ?? [])
+const hasCitations = computed(() => citations.value.length > 0)
+const hasSources = computed(() => sources.value.length > 0)
+const showSources = ref(false)
 
 /** AI responses are rendered as markdown; user/agent text stays plain + escaped. */
 const renderedContent = computed(() =>
@@ -80,7 +84,7 @@ const bubbleClass = computed(() => {
 
       <!-- RAG citations: clickable source documents from the pgvector store -->
       <div
-        v-if="isAssistant && citations.length > 0"
+        v-if="isAssistant && hasCitations"
         class="mt-2"
         data-test="citations"
       >
@@ -100,6 +104,48 @@ const bubbleClass = computed(() => {
             <span aria-hidden="true">📄</span>
             {{ ref.title }}
           </a>
+        </div>
+      </div>
+
+      <!-- Source citations: collapsible badges for structured citation metadata -->
+      <div
+        v-if="isAssistant && hasSources"
+        class="mt-2"
+        data-test="source-citations"
+      >
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-400 transition hover:text-indigo-500"
+          @click="showSources = !showSources"
+        >
+          <svg
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="2"
+            stroke="currentColor"
+            class="size-3 transition-transform"
+            :class="showSources ? 'rotate-90' : ''"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+          {{ sources.length }} source{{ sources.length !== 1 ? 's' : '' }} cited
+        </button>
+        <div
+          v-if="showSources"
+          class="mt-1.5 flex flex-wrap gap-1.5"
+        >
+          <span
+            v-for="src in sources"
+            :key="src.sourceId ?? src.title"
+            class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600"
+            :title="`Source type: ${src.sourceType ?? 'UNKNOWN'}`"
+          >
+            <span aria-hidden="true">
+              {{ src.sourceType === 'PDF' ? '📕' : src.sourceType === 'MARKDOWN' ? '📝' : '📄' }}
+            </span>
+            {{ src.title }}
+          </span>
         </div>
       </div>
 

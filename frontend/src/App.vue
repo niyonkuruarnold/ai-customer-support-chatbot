@@ -9,6 +9,7 @@ import {
 } from 'vue'
 import ChatMessage from './components/ChatMessage.vue'
 import ChatWindow from './components/ChatWindow.vue'
+import SyncStatusBadge from './components/SyncStatusBadge.vue'
 import TypingIndicator from './components/TypingIndicator.vue'
 import AgentWorkspace from './components/agent/AgentWorkspace.vue'
 import KnowledgeBaseAdmin from './components/admin/KnowledgeBaseAdmin.vue'
@@ -212,6 +213,9 @@ onBeforeUnmount(() => {
             {{ store.isEscalated ? 'Agent Active · AI paused, a human agent is with you' : 'Online · replies instantly' }}
           </p>
         </div>
+
+        <!-- System sync status -->
+        <SyncStatusBadge />
 
         <!-- Clear conversation -->
         <button

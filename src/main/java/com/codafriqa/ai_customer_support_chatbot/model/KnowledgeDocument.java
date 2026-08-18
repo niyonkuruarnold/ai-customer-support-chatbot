@@ -29,6 +29,9 @@ public class KnowledgeDocument {
     private LocalDateTime createdAt = LocalDateTime.now();
     private LocalDateTime updatedAt = LocalDateTime.now();
 
+    /** Timestamp when this document was last indexed into the vector store. Null means never indexed. */
+    private LocalDateTime indexedAt;
+
     public KnowledgeDocument() {}
 
     public KnowledgeDocument(String title, String sourceType, String fileName) {
@@ -66,4 +69,7 @@ public class KnowledgeDocument {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public LocalDateTime getIndexedAt() { return indexedAt; }
+    public void setIndexedAt(LocalDateTime indexedAt) { this.indexedAt = indexedAt; }
 }

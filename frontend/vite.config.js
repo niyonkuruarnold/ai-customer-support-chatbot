@@ -8,9 +8,10 @@ export default defineConfig({
   test: {
     // happy-dom avoids the undici/CacheStorage collision that jsdom triggers
     // in Node 20 ("TypeError: webidl.util.markAsUncloneable is not a function").
-    // It does not mutate globalThis the way jsdom's undici polyfill does,
-    // so the test runner stays stable regardless of pool strategy.
+    // The setup file below provides an additional safety net by stubbing
+    // globalThis.CacheStorage before any test imports run.
     environment: 'happy-dom',
+    setupFiles: ['./src/test/setup.js'],
     pool: 'forks',
     poolTimeout: 120000,
   },

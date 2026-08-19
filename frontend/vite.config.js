@@ -7,12 +7,12 @@ export default defineConfig({
   plugins: [vue(), tailwindcss()],
   test: {
     environment: 'jsdom',
-    // The default 'forks' pool is unreliable on Windows, and spawning several
-    // workers at once can outrun the pool startup timeout. Run sequentially
-    // in a single thread pool worker for stability.
-    pool: 'threads',
-    maxWorkers: 1,
-    fileParallelism: false,
+    // Use forks instead of threads to avoid the undici webidl error
+    // ("TypeError: webidl.util.markAsUncloneable is not a function")
+    // that occurs when vitest worker threads share undici internals in
+    // Node 20. Forks give each test file its own process, isolating
+    // undici/globalThis mutations.
+    pool: 'forks',
     poolTimeout: 120000,
   },
 })

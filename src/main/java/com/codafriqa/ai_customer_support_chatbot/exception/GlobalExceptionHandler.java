@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.exception;
 
+import org.springframework.ai.openai.api.common.OpenAiApiClientErrorException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -70,6 +71,26 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         response.put("path", request.getDescription(false).replace("uri=", ""));
         
         return new ResponseEntity<>(response, ex.getStatus());
+    }
+
+    /**
+     * Handle Spring AI OpenAI client errors (HTTP 4xx/5xx from the OpenAI
+     * endpoint that propagate as RuntimeException before reaching the chat
+     * service layer).
+     */
+    @ExceptionHandler(OpenAiApiClientErrorException.class)
+    public ResponseEntity<Map<String, Object>> handleOpenAiClientError(
+            OpenAiApiClientErrorException ex,
+            WebRequest request) {
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("status", HttpStatus.BAD_GATEWAY.value());
+        response.put("error", "AI Service Unavailable");
+        response.put("message", "The AI service is temporarily unavailable. Please try again shortly.");
+        response.put("path", request.getDescription(false).replace("uri=", ""));
+        
+        return new ResponseEntity<>(response, HttpStatus.BAD_GATEWAY);
     }
 
     /**

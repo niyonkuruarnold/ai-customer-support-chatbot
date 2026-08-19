@@ -1,16 +1,12 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.ai.chat.client.ChatClient;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
-
-import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Map;
@@ -26,9 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @ExtendWith(MockitoExtension.class)
 class RagServiceTest {
-
-    @Mock
-    private ChatClient.Builder chatClientBuilder;
 
     /** Minimal VectorStore returning a fixed result list. */
     static class StubVectorStore implements VectorStore {
@@ -77,8 +70,7 @@ class RagServiceTest {
         Document doc2 = new Document("Shipping takes 3-5 business days.",
                 Map.of("documentId", 20L, "title", "Shipping Guide", "sourceType", "PDF"));
 
-        when(chatClientBuilder.build()).thenReturn(null);
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2)), chatClientBuilder, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2)), null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("return policy");
 
         assertFalse(ctx.contextText().isBlank());
@@ -98,8 +90,7 @@ class RagServiceTest {
         Document doc = new Document("Refund within 7 days.",
                 Map.of("documentId", 42L, "title", "Refund Policy", "sourceType", "MARKDOWN"));
 
-        when(chatClientBuilder.build()).thenReturn(null);
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), chatClientBuilder, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("refund");
 
         var citations = ctx.toCitations();
@@ -118,8 +109,7 @@ class RagServiceTest {
         Document doc3 = new Document("Chunk C",
                 Map.of("documentId", 20L, "title", "Shipping Guide", "sourceType", "PDF"));
 
-        when(chatClientBuilder.build()).thenReturn(null);
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2, doc3)), chatClientBuilder, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2, doc3)), null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("returns");
 
         assertEquals(2, ctx.references().size());
@@ -133,8 +123,7 @@ class RagServiceTest {
                 Map.of("documentId", 5L, "title", "Policy", "sourceType", "TEXT"));
         Document docWithoutId = new Document("No metadata key");
 
-        when(chatClientBuilder.build()).thenReturn(null);
-        RagService ragService = new RagService(new StubVectorStore(List.of(docWithId, docWithoutId)), chatClientBuilder, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of(docWithId, docWithoutId)), null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("policy");
 
         assertEquals(1, ctx.references().size());
@@ -143,8 +132,7 @@ class RagServiceTest {
 
     @Test
     void retrieveContextReturnsEmptyWhenNoResults() {
-        when(chatClientBuilder.build()).thenReturn(null);
-        RagService ragService = new RagService(new StubVectorStore(List.of()), chatClientBuilder, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("nonexistent");
 
         assertTrue(ctx.contextText().isBlank());
@@ -153,8 +141,7 @@ class RagServiceTest {
 
     @Test
     void retrieveContextFallsBackGracefullyOnStoreFailure() {
-        when(chatClientBuilder.build()).thenReturn(null);
-        RagService ragService = new RagService(new ThrowingVectorStore(), chatClientBuilder, null);
+        RagService ragService = new RagService(new ThrowingVectorStore(), null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("anything");
 
         assertNotNull(ctx);
@@ -169,5 +156,35 @@ class RagServiceTest {
         assertTrue(empty.contextText().isBlank());
         assertTrue(empty.references().isEmpty());
         assertTrue(empty.toCitations().isEmpty());
+    }
+
+    @Test
+    void retrieveContextReturnsMockContextWhenApiKeyIsMissing() {
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null);
+        RagService.RagContext ctx = ragService.retrieveContext("anything");
+
+        assertNotNull(ctx);
+        assertFalse(ctx.contextText().isBlank());
+        assertTrue(ctx.contextText().contains("Mock knowledge base context"));
+        assertTrue(ctx.references().isEmpty());
+    }
+
+    @Test
+    void retrieveContextReturnsMockContextWhenApiKeyIsPlaceholder() {
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, "your-api-key-here");
+        RagService.RagContext ctx = ragService.retrieveContext("anything");
+
+        assertNotNull(ctx);
+        assertFalse(ctx.contextText().isBlank());
+        assertTrue(ctx.contextText().contains("Mock knowledge base context"));
+    }
+
+    @Test
+    void mockContextHasNoCitations() {
+        RagService.RagContext mockCtx = RagService.RagContext.mockContext();
+
+        assertFalse(mockCtx.contextText().isBlank());
+        assertTrue(mockCtx.references().isEmpty());
+        assertTrue(mockCtx.toCitations().isEmpty());
     }
 }

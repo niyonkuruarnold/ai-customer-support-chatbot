@@ -12,6 +12,7 @@ import com.codafriqa.ai_customer_support_chatbot.repository.ChatSessionRepositor
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -48,25 +49,44 @@ public class ChatService {
 
             """;
 
+    /**
+     * Mock response returned when OPENAI_API_KEY is not configured. Allows
+     * the full chat pipeline to be exercised in local development without
+     * a paid API quota.
+     */
+    private static final String MOCK_RESPONSE_PREFIX =
+            "[Local dev — OPENAI_API_KEY not configured] ";
+
     private final ChatClient chatClient;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
     private final EscalationService escalationService;
     private final RagService ragService;
     private final UserService userService;
+    private final String openaiApiKey;
 
     public ChatService(ChatClient.Builder chatClientBuilder,
                        ChatSessionRepository sessionRepository,
                        ChatMessageRepository messageRepository,
                        EscalationService escalationService,
                        RagService ragService,
-                       UserService userService) {
+                       UserService userService,
+                       @Value("${spring.ai.openai.api-key:}") String openaiApiKey) {
         this.chatClient = chatClientBuilder.build();
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.escalationService = escalationService;
         this.ragService = ragService;
         this.userService = userService;
+        this.openaiApiKey = openaiApiKey;
+    }
+
+    /**
+     * Returns true when the OpenAI API key is missing or is a placeholder.
+     */
+    private boolean isApiKeyMissing() {
+        return openaiApiKey == null || openaiApiKey.isBlank()
+                || openaiApiKey.contains("your-") || openaiApiKey.contains("sk-placeholder");
     }
 
     /**
@@ -139,17 +159,37 @@ public class ChatService {
      * and appended to the system prompt. Falls back to a plain (context-free)
      * prompt when retrieval is unavailable, and to a friendly fallback message
      * when the model itself cannot be reached (e.g. missing OPENAI_API_KEY).
+     *
+     * <p>When the OpenAI API key is not configured the method short-circuits
+     * with a mock response so the full chat pipeline can be tested locally
+     * without a paid API quota.
      */
     private GenerationResult generateResponse(String userMessage) {
-        // Retrieval never throws: RagService.retrieveContext returns an empty
-        // context when the vector store is unavailable or has nothing relevant.
-        // (Plain concatenation, not String.formatted, so KB text containing '%'
-        // cannot raise an UnknownFormatConversionException outside the try below.)
+        // Retrieval never throws: RagService.retrieveContext returns a mock
+        // or empty context when the vector store is unavailable, has nothing
+        // relevant, or the API key is missing.
         RagService.RagContext rag = ragService.retrieveContext(userMessage);
         boolean ragUsed = !rag.contextText().isBlank();
         String systemInstruction = ragUsed
                 ? BASE_SYSTEM_INSTRUCTION + KNOWLEDGE_SECTION + rag.contextText()
                 : BASE_SYSTEM_INSTRUCTION;
+
+        // When the API key is missing, skip the OpenAI call entirely and
+        // return a structured mock response so the pipeline works end-to-end.
+        if (isApiKeyMissing()) {
+            log.info("OPENAI_API_KEY is not configured — returning mock chat response for local development");
+            String mockAnswer = MOCK_RESPONSE_PREFIX
+                    + "Thank you for your message! I'm your AI support assistant for Code of Africa. "
+                    + "In a production environment I would answer your question using our knowledge base. "
+                    + "To enable live AI responses, set the OPENAI_API_KEY environment variable. "
+                    + "Is there anything else I can help with?";
+            List<ChatResponseDto.ContextReference> references = rag.references().stream()
+                    .map(r -> new ChatResponseDto.ContextReference(
+                            r.documentId(), r.title(), r.sourceType()))
+                    .toList();
+            List<SourceCitationDto> citations = rag.toCitations();
+            return new GenerationResult(mockAnswer, ragUsed, references, citations);
+        }
 
         try {
             String answer = chatClient.prompt()

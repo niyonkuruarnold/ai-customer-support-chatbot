@@ -9,6 +9,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +29,8 @@ import org.springframework.web.bind.annotation.*;
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 @Tag(name = "Chat", description = "AI-powered chat endpoints for customer conversations")
 public class ChatController {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
     private final ChatService chatService;
 
@@ -52,8 +56,18 @@ public class ChatController {
     })
     @PostMapping({"", "/message"})
     public ResponseEntity<ChatResponseDto> sendMessage(@Valid @RequestBody ChatRequestDto request) {
-        ChatResponseDto response = chatService.sendMessage(request.getMessage(), request.getSessionId());
-        return ResponseEntity.ok(response);
+        try {
+            ChatResponseDto response = chatService.sendMessage(request.getMessage(), request.getSessionId());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Chat request failed ({}: {}); returning fallback response",
+                    e.getClass().getSimpleName(), e.getMessage(), e);
+            ChatResponseDto fallback = new ChatResponseDto(
+                    "I'm sorry, I'm having trouble processing your request right now. " +
+                    "Please try again shortly, or ask to speak with a human support agent.",
+                    request.getSessionId(), null);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(fallback);
+        }
     }
 
     /**

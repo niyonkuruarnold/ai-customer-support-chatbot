@@ -4,10 +4,10 @@ import com.codafriqa.ai_customer_support_chatbot.dto.KnowledgeDocumentDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.SourceCitationDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -42,16 +42,38 @@ public class RagService {
     /** Top-K relevant chunks retrieved per user message (spec: top 3-5). */
     private static final int RETRIEVAL_TOP_K = 4;
 
+    /**
+     * Mock knowledge base context returned when the OpenAI API key is missing
+     * or invalid, allowing the chat pipeline to function end-to-end during
+     * local development without a paid API quota.
+     */
+    private static final String MOCK_CONTEXT =
+            "Mock knowledge base context (OPENAI_API_KEY is not configured): "
+            + "Code of Africa provides AI-powered customer support solutions. "
+            + "Our flagship product is an intelligent chatbot with RAG capabilities. "
+            + "Key features include knowledge base management, ticket escalation, and agent handoff. "
+            + "For production use, configure the OPENAI_API_KEY environment variable. "
+            + "Contact support@codofafrica.com for assistance.";
+
     private final VectorStore vectorStore;
-    private final ChatClient chatClient;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final String openaiApiKey;
 
     public RagService(VectorStore vectorStore,
-                      ChatClient.Builder chatClientBuilder,
-                      KnowledgeBaseService knowledgeBaseService) {
+                      KnowledgeBaseService knowledgeBaseService,
+                      @Value("${spring.ai.openai.api-key:}") String openaiApiKey) {
         this.vectorStore = vectorStore;
-        this.chatClient = chatClientBuilder.build();
         this.knowledgeBaseService = knowledgeBaseService;
+        this.openaiApiKey = openaiApiKey;
+    }
+
+    /**
+     * Returns true when the OpenAI API key is not configured or is set to
+     * an obviously invalid placeholder value.
+     */
+    private boolean isApiKeyMissing() {
+        return openaiApiKey == null || openaiApiKey.isBlank()
+                || openaiApiKey.contains("your-") || openaiApiKey.contains("sk-placeholder");
     }
 
     /**
@@ -69,8 +91,19 @@ public class RagService {
      * most relevant chunks from the vector store, together with the source
      * document metadata (documentId / title / sourceType) for response
      * references.
+     *
+     * <p>When the OpenAI API key is missing, returns a mock context so the
+     * chat pipeline can be exercised end-to-end in local development without
+     * a paid API quota. Vector store failures (unreachable store, connection
+     * errors, empty results) are never propagated — they fall back to either
+     * the mock context (when the key is missing) or an empty context.
      */
     public RagContext retrieveContext(String query) {
+        if (isApiKeyMissing()) {
+            log.info("OPENAI_API_KEY is not configured — returning mock context for local development");
+            return RagContext.mockContext();
+        }
+
         try {
             List<Document> results = vectorStore.similaritySearch(
                     SearchRequest.builder().query(query).topK(RETRIEVAL_TOP_K).build());
@@ -99,9 +132,13 @@ public class RagService {
 
             return new RagContext(contextText, List.copyOf(byId.values()));
         } catch (Exception e) {
-            // Never throws: log the exact failure and fall back to a plain prompt.
+            // Never throws: log the exact failure and fall back to the mock
+            // context when the API key is missing, or an empty context otherwise.
             log.warn("Vector retrieval failed ({}: {}); answering without knowledge base context",
                     e.getClass().getSimpleName(), e.getMessage(), e);
+            if (isApiKeyMissing()) {
+                return RagContext.mockContext();
+            }
             return RagContext.empty();
         }
     }
@@ -110,6 +147,15 @@ public class RagService {
     public record RagContext(String contextText, List<ContextReference> references) {
         static RagContext empty() {
             return new RagContext("", List.of());
+        }
+
+        /**
+         * Return a mock context used when the OpenAI API key is not configured.
+         * This allows the entire chat pipeline to be exercised in local
+         * development without a paid API quota.
+         */
+        static RagContext mockContext() {
+            return new RagContext(MOCK_CONTEXT, List.of());
         }
 
         /**

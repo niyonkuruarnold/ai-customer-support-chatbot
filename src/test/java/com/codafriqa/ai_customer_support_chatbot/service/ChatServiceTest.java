@@ -126,10 +126,10 @@ class ChatServiceTest {
         // RagService with a null VectorStore takes the graceful "no context"
         // path (retrieval never throws). The RAG test below swaps in a real
         // inline StubVectorStore.
-        RagService ragService = new RagService(null, chatClientBuilder, null);
+        RagService ragService = new RagService(null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, userService);
+                escalationService, ragService, userService, "test-api-key");
     }
 
     private void stubInfrastructure(boolean escalated) {
@@ -179,10 +179,10 @@ class ChatServiceTest {
 
         Document doc = new Document("Returns are accepted within 30 days of delivery.",
                 Map.of("documentId", 42L, "title", "Returns Policy", "sourceType", "TEXT"));
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), chatClientBuilder, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository));
+                escalationService, ragService, new UserService(userRepository), "test-api-key");
 
         var result = service.sendMessage("What is your return policy?", null);
 
@@ -252,10 +252,10 @@ class ChatServiceTest {
         // context, and ChatService answers from the base instruction alone.
         stubInfrastructure(false);
         stubAiAnswer("Answer without knowledge base context");
-        RagService ragService = new RagService(new ThrowingVectorStore(), chatClientBuilder, null);
+        RagService ragService = new RagService(new ThrowingVectorStore(), null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository));
+                escalationService, ragService, new UserService(userRepository), "test-api-key");
 
         var result = service.sendMessage("What is your return policy?", null);
 

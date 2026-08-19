@@ -44,16 +44,23 @@ public class RagService {
 
     /**
      * Mock knowledge base context returned when the OpenAI API key is missing
-     * or invalid, allowing the chat pipeline to function end-to-end during
-     * local development without a paid API quota.
+     * or invalid, allowing the chat pipeline and citation flow to be tested
+     * end-to-end during local development without a paid API quota.
+     *
+     * <p>Each entry simulates a retrieved vector store chunk with realistic
+     * document metadata so the frontend citation UI can be exercised.
      */
-    private static final String MOCK_CONTEXT =
-            "Mock knowledge base context (OPENAI_API_KEY is not configured): "
-            + "Code of Africa provides AI-powered customer support solutions. "
-            + "Our flagship product is an intelligent chatbot with RAG capabilities. "
-            + "Key features include knowledge base management, ticket escalation, and agent handoff. "
-            + "For production use, configure the OPENAI_API_KEY environment variable. "
-            + "Contact support@codofafrica.com for assistance.";
+    private static final String MOCK_CHUNK_1 =
+            "Code of Africa offers AI-powered customer support solutions including "
+            + "intelligent chatbots, knowledge base management, and ticket escalation.";
+
+    private static final String MOCK_CHUNK_2 =
+            "Our flagship product is a RAG-enabled chatbot that retrieves relevant "
+            + "knowledge base context to answer customer inquiries accurately.";
+
+    private static final String MOCK_CHUNK_3 =
+            "For support, contact support@codofafrica.com or use the in-app "
+            + "escalation feature to connect with a human support agent.";
 
     private final VectorStore vectorStore;
     private final KnowledgeBaseService knowledgeBaseService;
@@ -151,11 +158,17 @@ public class RagService {
 
         /**
          * Return a mock context used when the OpenAI API key is not configured.
-         * This allows the entire chat pipeline to be exercised in local
-         * development without a paid API quota.
+         * This allows the entire chat pipeline and citation rendering to be
+         * exercised in local development without a paid API quota.
          */
         static RagContext mockContext() {
-            return new RagContext(MOCK_CONTEXT, List.of());
+            String contextText = List.of(MOCK_CHUNK_1, MOCK_CHUNK_2, MOCK_CHUNK_3)
+                    .stream().map(c -> "- " + c).collect(Collectors.joining("\n"));
+            List<ContextReference> references = List.of(
+                    new ContextReference(-1L, "Code of Africa — Products & Services", "TEXT"),
+                    new ContextReference(-2L, "Code of Africa — RAG Chatbot Architecture", "MARKDOWN"),
+                    new ContextReference(-3L, "Code of Africa — Contact & Support", "PDF"));
+            return new RagContext(contextText, references);
         }
 
         /**

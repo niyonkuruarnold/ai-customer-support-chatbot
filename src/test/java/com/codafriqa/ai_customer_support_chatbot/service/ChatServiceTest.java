@@ -310,4 +310,39 @@ class ChatServiceTest {
         assertEquals("ESCALATED", result.getStatus());
         verify(chatClient, never()).prompt();
     }
+
+    /**
+     * When OPENAI_API_KEY is missing, the mock response must still carry
+     * citations from the RagService mock context so the frontend citation
+     * UI can be exercised end-to-end.
+     */
+    @Test
+    void mockModeReturnsResponseWithCitationsForCitationFlowTesting() {
+        stubInfrastructure(false);
+        // Use null API key to trigger mock mode in both RagService and ChatService.
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null);
+        service = new ChatService(
+                chatClientBuilder, sessionRepository, messageRepository,
+                escalationService, ragService, new UserService(userRepository), null);
+
+        var result = service.sendMessage("Tell me about your products", null);
+
+        // The response should contain the local-dev prefix.
+        assertTrue(result.getResponse().contains("OPENAI_API_KEY") || result.getResponse().contains("local"));
+        assertEquals("ACTIVE", result.getStatus());
+
+        // RAG was used (mock context is non-blank).
+        assertTrue(result.isRagUsed());
+
+        // Mock context carries citations — the frontend citation UI must have data.
+        assertFalse(result.getContextReferences().isEmpty(),
+                "Mock mode must provide context references for citation flow testing");
+        assertFalse(result.getSourceCitations().isEmpty(),
+                "Mock mode must provide source citations for citation flow testing");
+        assertEquals(3, result.getContextReferences().size());
+        assertEquals(3, result.getSourceCitations().size());
+
+        // The OpenAI chat client must NOT have been called.
+        verify(chatClient, never()).prompt();
+    }
 }

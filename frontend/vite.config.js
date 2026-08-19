@@ -6,12 +6,11 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
   test: {
-    environment: 'jsdom',
-    // Use forks instead of threads to avoid the undici webidl error
-    // ("TypeError: webidl.util.markAsUncloneable is not a function")
-    // that occurs when vitest worker threads share undici internals in
-    // Node 20. Forks give each test file its own process, isolating
-    // undici/globalThis mutations.
+    // happy-dom avoids the undici/CacheStorage collision that jsdom triggers
+    // in Node 20 ("TypeError: webidl.util.markAsUncloneable is not a function").
+    // It does not mutate globalThis the way jsdom's undici polyfill does,
+    // so the test runner stays stable regardless of pool strategy.
+    environment: 'happy-dom',
     pool: 'forks',
     poolTimeout: 120000,
   },

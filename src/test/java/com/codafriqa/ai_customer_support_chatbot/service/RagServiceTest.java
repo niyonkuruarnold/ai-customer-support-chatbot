@@ -159,14 +159,23 @@ class RagServiceTest {
     }
 
     @Test
-    void retrieveContextReturnsMockContextWhenApiKeyIsMissing() {
+    void retrieveContextReturnsMockContextWithCitationsWhenApiKeyIsMissing() {
         RagService ragService = new RagService(new StubVectorStore(List.of()), null, null);
         RagService.RagContext ctx = ragService.retrieveContext("anything");
 
         assertNotNull(ctx);
         assertFalse(ctx.contextText().isBlank());
-        assertTrue(ctx.contextText().contains("Mock knowledge base context"));
-        assertTrue(ctx.references().isEmpty());
+        assertTrue(ctx.contextText().contains("Code of Africa"));
+
+        // Mock context must carry citations so the frontend citation UI can be tested.
+        assertFalse(ctx.references().isEmpty());
+        assertEquals(3, ctx.references().size());
+        assertEquals("Code of Africa — Products & Services", ctx.references().get(0).title());
+        assertEquals("TEXT", ctx.references().get(0).sourceType());
+        assertEquals("Code of Africa — RAG Chatbot Architecture", ctx.references().get(1).title());
+        assertEquals("MARKDOWN", ctx.references().get(1).sourceType());
+        assertEquals("Code of Africa — Contact & Support", ctx.references().get(2).title());
+        assertEquals("PDF", ctx.references().get(2).sourceType());
     }
 
     @Test
@@ -176,15 +185,23 @@ class RagServiceTest {
 
         assertNotNull(ctx);
         assertFalse(ctx.contextText().isBlank());
-        assertTrue(ctx.contextText().contains("Mock knowledge base context"));
+        assertTrue(ctx.contextText().contains("Code of Africa"));
+        assertFalse(ctx.references().isEmpty());
     }
 
     @Test
-    void mockContextHasNoCitations() {
+    void mockContextHasCitationsForCitationFlowTesting() {
         RagService.RagContext mockCtx = RagService.RagContext.mockContext();
 
         assertFalse(mockCtx.contextText().isBlank());
-        assertTrue(mockCtx.references().isEmpty());
-        assertTrue(mockCtx.toCitations().isEmpty());
+        assertFalse(mockCtx.references().isEmpty());
+        assertEquals(3, mockCtx.references().size());
+
+        // toCitations() must map references into SourceCitationDto objects
+        // so the frontend citation rendering can be exercised end-to-end.
+        var citations = mockCtx.toCitations();
+        assertEquals(3, citations.size());
+        assertEquals("Code of Africa — Products & Services", citations.get(0).title());
+        assertEquals("TEXT", citations.get(0).sourceType());
     }
 }

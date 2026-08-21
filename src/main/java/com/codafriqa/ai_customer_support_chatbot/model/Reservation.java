@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.model;
 
+import com.codafriqa.ai_customer_support_chatbot.service.SystemDataSyncListener;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -10,6 +11,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "reservations")
+@EntityListeners(SystemDataSyncListener.class)
 public class Reservation {
 
     @Id

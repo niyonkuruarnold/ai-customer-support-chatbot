@@ -85,6 +85,37 @@ public class SupportTicketService {
     }
 
     /**
+     * Admin override: set any valid status on a ticket.
+     * Allowed target statuses: OPEN, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED.
+     * Throws IllegalArgumentException for invalid targets.
+     */
+    public SupportTicket updateStatus(Long id, String targetStatus) {
+        SupportTicket ticket = findTicket(id);
+        String normalized = targetStatus.trim().toUpperCase(Locale.ROOT);
+        if (!List.of("OPEN", "IN_PROGRESS", "ESCALATED", "RESOLVED", "CLOSED").contains(normalized)) {
+            throw new IllegalArgumentException("Invalid ticket status: " + normalized);
+        }
+        ticket.setStatus(normalized);
+        SupportTicket saved = ticketRepository.save(ticket);
+        emailService.sendTicketNotification(
+                userEmail(ticket.getUserId()), saved, EmailNotificationService.TicketEvent.UPDATED);
+        return saved;
+    }
+
+    /** Admin: reassign a ticket to a different agent. */
+    public SupportTicket updateAssignedAgent(Long id, String agentName) {
+        SupportTicket ticket = findTicket(id);
+        ticket.setAssignedAgent(agentName);
+        return ticketRepository.save(ticket);
+    }
+
+    /** Admin: permanently delete a ticket and its associated notes. */
+    public void deleteTicket(Long id) {
+        SupportTicket ticket = findTicket(id);
+        ticketRepository.delete(ticket);
+    }
+
+    /**
      * Enforce the ticket state machine. Throws IllegalArgumentException on
      * any transition not allowed by the graph below.
      */

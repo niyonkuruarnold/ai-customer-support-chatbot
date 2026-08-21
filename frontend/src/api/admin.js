@@ -111,3 +111,23 @@ export function fetchTickets({ status, priority, assignedAgentId, page = 0, size
 export function closeTicket(id) {
   return request(async () => (await adminClient.post(`/v1/tickets/${id}/close`)).data)
 }
+
+/** PATCH /v1/tickets/{id}/status  ({ status }) -> TicketDto */
+export function updateTicketStatus(id, status) {
+  return request(
+    async () => (await adminClient.patch(`/v1/tickets/${id}/status`, { status })).data,
+  )
+}
+
+/** PATCH /v1/tickets/{id}/agent  ({ assignedAgent }) -> TicketDto */
+export function updateTicketAgent(id, assignedAgent) {
+  return request(
+    async () =>
+      (await adminClient.patch(`/v1/tickets/${id}/agent`, { assignedAgent })).data,
+  )
+}
+
+/** DELETE /v1/tickets/{id} -> 204 No Content */
+export function deleteTicket(id) {
+  return request(async () => adminClient.delete(`/v1/tickets/${id}`))
+}

@@ -54,7 +54,7 @@ public class SecurityConfig {
         ));
         
         // Allow HTTP methods needed for chat and admin APIs
-        corsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        corsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         
         // Allow headers from client
         corsConfig.setAllowedHeaders(Arrays.asList("*"));

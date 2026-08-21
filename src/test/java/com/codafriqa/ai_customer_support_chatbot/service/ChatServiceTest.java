@@ -268,7 +268,7 @@ class ChatServiceTest {
         ArgumentCaptor<String> systemCaptor = ArgumentCaptor.forClass(String.class);
         verify(requestSpec).system(systemCaptor.capture());
         assertFalse(systemCaptor.getValue().contains("Relevant knowledge base context"));
-        assertTrue(systemCaptor.getValue().contains("AI Customer Support Agent"));
+        assertTrue(systemCaptor.getValue().contains("CODAFRIQA AI Concierge"));
     }
 
     @Test

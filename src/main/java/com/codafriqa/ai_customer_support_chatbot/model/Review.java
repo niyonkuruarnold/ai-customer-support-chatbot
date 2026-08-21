@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.model;
 
+import com.codafriqa.ai_customer_support_chatbot.service.SystemDataSyncListener;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -14,6 +15,7 @@ import java.time.LocalDateTime;
 @Table(name = "reviews", uniqueConstraints = {
     @UniqueConstraint(columnNames = {"toolId", "reviewerId", "reservationId"})
 })
+@EntityListeners(SystemDataSyncListener.class)
 public class Review {
 
     @Id

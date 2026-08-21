@@ -73,4 +73,67 @@ public class TicketController {
     public ResponseEntity<TicketDto> close(@PathVariable Long id) {
         return ResponseEntity.ok(ticketService.toDto(ticketService.close(id)));
     }
+
+    /**
+     * Admin: update a ticket's status to any valid value.
+     */
+    @Operation(
+            summary = "Update ticket status",
+            description = "Admin override to set any valid status on a ticket. " +
+                    "Allowed values: OPEN, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED. " +
+                    "Requires HTTP Basic authentication.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ticket status updated"),
+            @ApiResponse(responseCode = "400", description = "Invalid status value"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Ticket not found")
+    })
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<TicketDto> updateStatus(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, String> body) {
+        String status = body.get("status");
+        if (status == null || status.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(ticketService.toDto(ticketService.updateStatus(id, status)));
+    }
+
+    /**
+     * Admin: reassign a ticket to a different agent.
+     */
+    @Operation(
+            summary = "Update ticket agent assignment",
+            description = "Reassign a ticket to a different support agent by name. " +
+                    "Requires HTTP Basic authentication.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Agent assignment updated"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Ticket not found")
+    })
+    @PatchMapping("/{id}/agent")
+    public ResponseEntity<TicketDto> updateAgent(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, String> body) {
+        String agentName = body.getOrDefault("assignedAgent", "");
+        return ResponseEntity.ok(ticketService.toDto(ticketService.updateAssignedAgent(id, agentName.isBlank() ? null : agentName)));
+    }
+
+    /**
+     * Admin: permanently delete a ticket.
+     */
+    @Operation(
+            summary = "Delete ticket",
+            description = "Permanently remove a ticket and its associated data. " +
+                    "Requires HTTP Basic authentication.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Ticket deleted successfully"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Ticket not found")
+    })
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteTicket(@PathVariable Long id) {
+        ticketService.deleteTicket(id);
+        return ResponseEntity.noContent().build();
+    }
 }

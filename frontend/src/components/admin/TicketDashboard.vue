@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { closeTicket, fetchTickets } from '../../api/admin'
+import { closeTicket, fetchTickets, updateTicketStatus, updateTicketAgent, deleteTicket } from '../../api/admin'
 import { useAgentStore } from '../../stores/agent'
 import { useToasts } from '../../composables/useToasts'
 
@@ -26,6 +26,8 @@ const totalPages = ref(0)
 const last = ref(true)
 const loadError = ref('')
 const closingId = ref(null)
+const updatingId = ref(null)
+const deletingId = ref(null)
 
 const isAuthenticated = computed(() => agentStore.authenticated)
 
@@ -161,6 +163,64 @@ async function handleClose(ticket) {
     }
   } finally {
     closingId.value = null
+  }
+}
+
+async function handleStatusChange(ticket, newStatus) {
+  if (newStatus === ticket.status) return
+  updatingId.value = ticket.id
+  try {
+    await updateTicketStatus(ticket.id, newStatus)
+    ticket.status = newStatus
+    push('success', `Ticket #${ticket.id} status → ${statusLabel[newStatus] || newStatus}.`)
+  } catch (err) {
+    if (err?.status === 401) {
+      agentStore.handleAuthFailure(err)
+      push('error', 'Session expired — please sign in again.')
+    } else {
+      push('error', err?.response?.data?.message || `Could not update ticket #${ticket.id}.`)
+    }
+  } finally {
+    updatingId.value = null
+  }
+}
+
+async function handleAgentChange(ticket, newAgent) {
+  if (newAgent === (ticket.assignedAgent || '')) return
+  updatingId.value = ticket.id
+  try {
+    await updateTicketAgent(ticket.id, newAgent)
+    ticket.assignedAgent = newAgent || null
+    push('success', `Ticket #${ticket.id} reassigned to ${newAgent || 'unassigned'}.`)
+  } catch (err) {
+    if (err?.status === 401) {
+      agentStore.handleAuthFailure(err)
+      push('error', 'Session expired — please sign in again.')
+    } else {
+      push('error', err?.response?.data?.message || `Could not reassign ticket #${ticket.id}.`)
+    }
+  } finally {
+    updatingId.value = null
+  }
+}
+
+async function handleDelete(ticket) {
+  if (!confirm(`Permanently delete ticket #${ticket.id}? This cannot be undone.`)) return
+  deletingId.value = ticket.id
+  try {
+    await deleteTicket(ticket.id)
+    tickets.value = tickets.value.filter((t) => t.id !== ticket.id)
+    totalElements.value = Math.max(0, totalElements.value - 1)
+    push('success', `Ticket #${ticket.id} deleted.`)
+  } catch (err) {
+    if (err?.status === 401) {
+      agentStore.handleAuthFailure(err)
+      push('error', 'Session expired — please sign in again.')
+    } else {
+      push('error', err?.response?.data?.message || `Could not delete ticket #${ticket.id}.`)
+    }
+  } finally {
+    deletingId.value = null
   }
 }
 
@@ -408,9 +468,10 @@ function formatDate(value) {
 
           <div
             v-else
-            class="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white"
+            class="mt-3 rounded-xl border border-slate-200 bg-white"
           >
-            <table class="w-full text-left text-sm">
+            <div class="w-full overflow-x-auto">
+            <table class="w-full min-w-[900px] text-left text-sm">
               <thead class="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
                 <tr>
                   <th class="px-4 py-3 font-semibold">#</th>
@@ -420,7 +481,7 @@ function formatDate(value) {
                   <th class="px-4 py-3 font-semibold">Priority</th>
                   <th class="px-4 py-3 font-semibold">Agent</th>
                   <th class="px-4 py-3 font-semibold">Updated</th>
-                  <th class="px-4 py-3 text-right font-semibold">Actions</th>
+                  <th class="min-w-[180px] px-4 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
@@ -460,23 +521,64 @@ function formatDate(value) {
                   <td class="px-4 py-3 text-xs whitespace-nowrap text-slate-500">
                     {{ formatDate(ticket.updatedAt) }}
                   </td>
-                  <td class="px-4 py-3 text-right">
-                    <button
-                      v-if="ticket.status === 'RESOLVED'"
-                      type="button"
-                      :disabled="closingId === ticket.id"
-                      data-test="close-ticket"
-                      @click="handleClose(ticket)"
-                      class="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
-                      :aria-label="`Close ticket ${ticket.id}`"
-                    >
-                      {{ closingId === ticket.id ? 'Closing…' : 'Close' }}
-                    </button>
-                    <span v-else class="text-xs text-slate-300">—</span>
+                  <td class="min-w-[180px] px-4 py-3 text-right">
+                    <div class="flex flex-wrap items-center justify-end gap-1.5">
+                      <!-- Status select -->
+                      <select
+                        :value="ticket.status"
+                        data-test="status-select"
+                        :disabled="updatingId === ticket.id"
+                        class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        :aria-label="`Change status for ticket ${ticket.id}`"
+                        @change="handleStatusChange(ticket, $event.target.value)"
+                      >
+                        <option v-for="s in STATUS_OPTIONS" :key="s" :value="s">
+                          {{ statusLabel[s] }}
+                        </option>
+                      </select>
+
+                      <!-- Agent assignment -->
+                      <input
+                        :value="ticket.assignedAgent || ''"
+                        data-test="agent-input"
+                        type="text"
+                        placeholder="Assign agent"
+                        :disabled="updatingId === ticket.id"
+                        class="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        :aria-label="`Assign agent for ticket ${ticket.id}`"
+                        @change="handleAgentChange(ticket, $event.target.value)"
+                      />
+
+                      <!-- Close button (RESOLVED only) -->
+                      <button
+                        v-if="ticket.status === 'RESOLVED'"
+                        type="button"
+                        :disabled="closingId === ticket.id"
+                        data-test="close-ticket"
+                        @click="handleClose(ticket)"
+                        class="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        :aria-label="`Close ticket ${ticket.id}`"
+                      >
+                        {{ closingId === ticket.id ? 'Closing…' : 'Close' }}
+                      </button>
+
+                      <!-- Delete button -->
+                      <button
+                        type="button"
+                        :disabled="deletingId === ticket.id"
+                        data-test="delete-ticket"
+                        @click="handleDelete(ticket)"
+                        class="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        :aria-label="`Delete ticket ${ticket.id}`"
+                      >
+                        {{ deletingId === ticket.id ? 'Deleting…' : '🗑 Delete' }}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
             </table>
+            </div>
           </div>
 
           <!-- Pagination -->

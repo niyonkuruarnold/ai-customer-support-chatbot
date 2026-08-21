@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.model;
 
+import com.codafriqa.ai_customer_support_chatbot.service.SystemDataSyncListener;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -7,6 +8,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "support_tickets")
+@EntityListeners(SystemDataSyncListener.class)
 public class SupportTicket {
 
     @Id

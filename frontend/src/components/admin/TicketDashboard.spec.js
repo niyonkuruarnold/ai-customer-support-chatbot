@@ -16,6 +16,9 @@ vi.mock('../../api/admin', () => ({
   deleteDocument: vi.fn(),
   fetchTickets: vi.fn(),
   closeTicket: vi.fn(),
+  updateTicketStatus: vi.fn(),
+  updateTicketAgent: vi.fn(),
+  deleteTicket: vi.fn(),
 }))
 
 vi.mock('../../api/agent', () => ({
@@ -242,6 +245,51 @@ describe('TicketDashboard', () => {
 
     expect(wrapper.text()).toContain('Admin sign in')
     expect(wrapper.text()).toContain('Session expired')
+  })
+
+  it('updates ticket status via the inline select', async () => {
+    const t = ticket({ id: 1, status: 'OPEN' })
+    adminApi.fetchTickets.mockResolvedValue(pageResponse([t]))
+    adminApi.updateTicketStatus.mockResolvedValue({ ...t, status: 'IN_PROGRESS' })
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    const select = wrapper.find('[data-test="status-select"]')
+    await select.setValue('IN_PROGRESS')
+    await flushPromises()
+
+    expect(adminApi.updateTicketStatus).toHaveBeenCalledWith(1, 'IN_PROGRESS')
+    expect(wrapper.text()).toContain('In progress')
+  })
+
+  it('updates agent assignment via the inline input', async () => {
+    const t = ticket({ id: 1, assignedAgent: null })
+    adminApi.fetchTickets.mockResolvedValue(pageResponse([t]))
+    adminApi.updateTicketAgent.mockResolvedValue({ ...t, assignedAgent: 'sarah' })
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    const input = wrapper.find('[data-test="agent-input"]')
+    await input.setValue('sarah')
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(adminApi.updateTicketAgent).toHaveBeenCalledWith(1, 'sarah')
+    expect(wrapper.text()).toContain('sarah')
+  })
+
+  it('shows an error toast when status update fails', async () => {
+    adminApi.fetchTickets.mockResolvedValue(pageResponse([ticket({ id: 1, status: 'OPEN' })]))
+    const err = new Error('Bad status')
+    err.response = { status: 400, data: { message: 'Invalid ticket status' } }
+    adminApi.updateTicketStatus.mockRejectedValue(err)
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    await wrapper.find('[data-test="status-select"]').setValue('CLOSED')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Invalid ticket status')
   })
 
   it('clears filters with the clear button', async () => {

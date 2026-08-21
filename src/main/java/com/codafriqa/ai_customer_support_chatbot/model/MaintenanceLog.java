@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.model;
 
+import com.codafriqa.ai_customer_support_chatbot.service.SystemDataSyncListener;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
@@ -12,6 +13,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "maintenance_logs")
+@EntityListeners(SystemDataSyncListener.class)
 public class MaintenanceLog {
 
     @Id

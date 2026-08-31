@@ -27,6 +27,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -83,7 +84,7 @@ class ChatServiceTest {
 
         @Override
         public boolean isEscalationRequest(String message) {
-            return message != null && message.toLowerCase().contains("human");
+            return super.isEscalationRequest(message);
         }
 
         @Override
@@ -126,7 +127,7 @@ class ChatServiceTest {
         // RagService with a null VectorStore takes the graceful "no context"
         // path (retrieval never throws). The RAG test below swaps in a real
         // inline StubVectorStore.
-        RagService ragService = new RagService(null, null, "test-api-key");
+        RagService ragService = new RagService(null, null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
                 escalationService, ragService, userService, "test-api-key");
@@ -179,7 +180,7 @@ class ChatServiceTest {
 
         Document doc = new Document("Returns are accepted within 30 days of delivery.",
                 Map.of("documentId", 42L, "title", "Returns Policy", "sourceType", "TEXT"));
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, "test-api-key");
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
                 escalationService, ragService, new UserService(userRepository), "test-api-key");
@@ -220,15 +221,16 @@ class ChatServiceTest {
 
         @Override
         public List<Document> similaritySearch(SearchRequest request) {
-            throw new IllegalStateException("vector store unavailable (no OPENAI_API_KEY?)");
+            throw new IllegalStateException("vector store unavailable (no GEMINI_API_KEY?)");
         }
     }
 
     @Test
-    void aiFailureReturnsStructuredFallbackResponseInsteadOfThrowing() {
-        // Simulates a placeholder or invalid OPENAI_API_KEY: the model call
-        // itself fails (401) at runtime — the service must not let that
-        // exception escape; it returns a friendly fallback response instead.
+    void aiFailurePropagatesExceptionToController() {
+        // Simulates a placeholder or invalid GEMINI_API_KEY: the model call
+        // itself fails (401) at runtime — the service now re-throws so the
+        // controller / GlobalExceptionHandler can return a structured error
+        // with the exact failure detail (e.g. class name + message).
         stubInfrastructure(false);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(any(String.class))).thenReturn(requestSpec);
@@ -236,23 +238,20 @@ class ChatServiceTest {
         when(requestSpec.call())
                 .thenThrow(new IllegalStateException("401 Unauthorized — bad API key"));
 
-        var result = service.sendMessage("Where is my order?", null);
-
-        assertTrue(result.getResponse().contains("having trouble processing"));
-        assertEquals("ACTIVE", result.getStatus());
-        assertFalse(result.isRagUsed());
-        assertTrue(result.getContextReferences().isEmpty());
-        assertFalse(escalationService.escalateCalled);
+        var ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.sendMessage("Where is my order?", null));
+        assertTrue(ex.getMessage().contains("401 Unauthorized"));
     }
 
     @Test
     void retrievalFailureFallsBackToPlainPromptWithoutThrowing() {
-        // Simulates a missing OPENAI_API_KEY / unreachable vector store: the
+        // Simulates a missing GEMINI_API_KEY / unreachable vector store: the
         // similarity search throws, RagService swallows it and returns empty
         // context, and ChatService answers from the base instruction alone.
         stubInfrastructure(false);
         stubAiAnswer("Answer without knowledge base context");
-        RagService ragService = new RagService(new ThrowingVectorStore(), null, "test-api-key");
+        RagService ragService = new RagService(new ThrowingVectorStore(), null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
                 escalationService, ragService, new UserService(userRepository), "test-api-key");
@@ -267,8 +266,9 @@ class ChatServiceTest {
         // The system prompt must NOT contain the knowledge base section.
         ArgumentCaptor<String> systemCaptor = ArgumentCaptor.forClass(String.class);
         verify(requestSpec).system(systemCaptor.capture());
-        assertFalse(systemCaptor.getValue().contains("Relevant knowledge base context"));
-        assertTrue(systemCaptor.getValue().contains("CODAFRIQA AI Concierge"));
+        assertFalse(systemCaptor.getValue().contains("RETRIEVED SYSTEM CONTEXT"));
+        assertTrue(systemCaptor.getValue().contains("CODAFRIQA Support Assistant")
+                || systemCaptor.getValue().contains("CODAFRIQA AI Assistant"));
     }
 
     @Test
@@ -312,7 +312,87 @@ class ChatServiceTest {
     }
 
     /**
-     * When OPENAI_API_KEY is missing, the mock response must still carry
+     * RAG-first routing: when the knowledge base has relevant context,
+     * informational questions about human agents are answered directly
+     * from the RAG context without triggering escalation.
+     */
+    @Test
+    void informationalQuestionAboutHumanAgentHoursAnsweredFromRagNotEscalated() {
+        stubInfrastructure(false);
+        stubAiAnswer("Our human support agents are available Mon-Fri 9am-5pm.");
+
+        Document doc = new Document(
+                "Human support agents are available Monday to Friday, 9am to 5pm.",
+                Map.of("documentId", 10L, "title", "Support Hours", "sourceType", "TEXT"));
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, null, "test-api-key");
+        service = new ChatService(
+                chatClientBuilder, sessionRepository, messageRepository,
+                escalationService, ragService, new UserService(userRepository), "test-api-key");
+
+        var result = service.sendMessage("What are the human agent support hours?", null);
+
+        // RAG context was found and used to answer the question
+        assertTrue(result.isRagUsed());
+        assertFalse(result.getContextReferences().isEmpty());
+        assertEquals("Our human support agents are available Mon-Fri 9am-5pm.", result.getResponse());
+        // MUST NOT escalate — the question is informational, not a request for a human
+        assertFalse(escalationService.escalateCalled);
+    }
+
+    /**
+     * Explicit escalation request: even when the knowledge base has relevant
+     * context, an explicit "talk to a human" request must always trigger
+     * escalation — the customer clearly wants a live person, not an AI answer.
+     */
+    @Test
+    void escalationRequestWithRelevantRagContextStillEscalates() {
+        stubInfrastructure(false);
+        when(messageRepository.findBySessionIdOrderByTimestampAsc(any()))
+                .thenReturn(List.of());
+
+        Document doc = new Document(
+                "To talk to a human agent, call our support line at +1-555-0123.",
+                Map.of("documentId", 20L, "title", "Contact Info", "sourceType", "TEXT"));
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, null, "test-api-key");
+        service = new ChatService(
+                chatClientBuilder, sessionRepository, messageRepository,
+                escalationService, ragService, new UserService(userRepository), "test-api-key");
+
+        var result = service.sendMessage("I want to talk to a human agent", null);
+
+        // Explicit escalation request → handoff ack, NOT a RAG response
+        assertTrue(result.getResponse().contains("connected to a human support agent"));
+        assertFalse(result.isRagUsed());
+        // Session MUST be escalated regardless of RAG context
+        assertTrue(escalationService.escalateCalled);
+    }
+
+    /**
+     * RAG-first routing: when the knowledge base has NO relevant context
+     * AND the user explicitly requests a human, the session IS escalated.
+     */
+    @Test
+    void escalationRequestWithNoRagContextTriggersHandoff() {
+        stubInfrastructure(false);
+        when(messageRepository.findBySessionIdOrderByTimestampAsc(any()))
+                .thenReturn(List.of());
+
+        // Empty vector store — no relevant context
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null, "test-api-key");
+        service = new ChatService(
+                chatClientBuilder, sessionRepository, messageRepository,
+                escalationService, ragService, new UserService(userRepository), "test-api-key");
+
+        var result = service.sendMessage("I want to talk to a human agent", null);
+
+        // No RAG context + explicit escalation request → handoff
+        assertTrue(result.getResponse().contains("connected to a human support agent"));
+        assertFalse(result.isRagUsed());
+        assertTrue(escalationService.escalateCalled);
+    }
+
+    /**
+     * When GEMINI_API_KEY is missing, the mock response must still carry
      * citations from the RagService mock context so the frontend citation
      * UI can be exercised end-to-end.
      */
@@ -320,7 +400,7 @@ class ChatServiceTest {
     void mockModeReturnsResponseWithCitationsForCitationFlowTesting() {
         stubInfrastructure(false);
         // Use null API key to trigger mock mode in both RagService and ChatService.
-        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null, null);
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
                 escalationService, ragService, new UserService(userRepository), null);
@@ -328,7 +408,7 @@ class ChatServiceTest {
         var result = service.sendMessage("Tell me about your products", null);
 
         // The response should contain the local-dev prefix.
-        assertTrue(result.getResponse().contains("OPENAI_API_KEY") || result.getResponse().contains("local"));
+        assertTrue(result.getResponse().contains("GEMINI_API_KEY") || result.getResponse().contains("local"));
         assertEquals("ACTIVE", result.getStatus());
 
         // RAG was used (mock context is non-blank).

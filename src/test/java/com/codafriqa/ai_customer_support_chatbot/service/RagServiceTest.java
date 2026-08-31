@@ -70,7 +70,7 @@ class RagServiceTest {
         Document doc2 = new Document("Shipping takes 3-5 business days.",
                 Map.of("documentId", 20L, "title", "Shipping Guide", "sourceType", "PDF"));
 
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2)), null, "test-api-key");
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2)), null, null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("return policy");
 
         assertFalse(ctx.contextText().isBlank());
@@ -90,7 +90,7 @@ class RagServiceTest {
         Document doc = new Document("Refund within 7 days.",
                 Map.of("documentId", 42L, "title", "Refund Policy", "sourceType", "MARKDOWN"));
 
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, "test-api-key");
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("refund");
 
         var citations = ctx.toCitations();
@@ -109,7 +109,7 @@ class RagServiceTest {
         Document doc3 = new Document("Chunk C",
                 Map.of("documentId", 20L, "title", "Shipping Guide", "sourceType", "PDF"));
 
-        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2, doc3)), null, "test-api-key");
+        RagService ragService = new RagService(new StubVectorStore(List.of(doc1, doc2, doc3)), null, null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("returns");
 
         assertEquals(2, ctx.references().size());
@@ -123,7 +123,7 @@ class RagServiceTest {
                 Map.of("documentId", 5L, "title", "Policy", "sourceType", "TEXT"));
         Document docWithoutId = new Document("No metadata key");
 
-        RagService ragService = new RagService(new StubVectorStore(List.of(docWithId, docWithoutId)), null, "test-api-key");
+        RagService ragService = new RagService(new StubVectorStore(List.of(docWithId, docWithoutId)), null, null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("policy");
 
         assertEquals(1, ctx.references().size());
@@ -132,7 +132,7 @@ class RagServiceTest {
 
     @Test
     void retrieveContextReturnsEmptyWhenNoResults() {
-        RagService ragService = new RagService(new StubVectorStore(List.of()), null, "test-api-key");
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("nonexistent");
 
         assertTrue(ctx.contextText().isBlank());
@@ -141,7 +141,7 @@ class RagServiceTest {
 
     @Test
     void retrieveContextFallsBackGracefullyOnStoreFailure() {
-        RagService ragService = new RagService(new ThrowingVectorStore(), null, "test-api-key");
+        RagService ragService = new RagService(new ThrowingVectorStore(), null, null, "test-api-key");
         RagService.RagContext ctx = ragService.retrieveContext("anything");
 
         assertNotNull(ctx);
@@ -160,7 +160,7 @@ class RagServiceTest {
 
     @Test
     void retrieveContextReturnsMockContextWithCitationsWhenApiKeyIsMissing() {
-        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null);
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null, null);
         RagService.RagContext ctx = ragService.retrieveContext("anything");
 
         assertNotNull(ctx);
@@ -180,7 +180,7 @@ class RagServiceTest {
 
     @Test
     void retrieveContextReturnsMockContextWhenApiKeyIsPlaceholder() {
-        RagService ragService = new RagService(new StubVectorStore(List.of()), null, "your-api-key-here");
+        RagService ragService = new RagService(new StubVectorStore(List.of()), null, null, "your-api-key-here");
         RagService.RagContext ctx = ragService.retrieveContext("anything");
 
         assertNotNull(ctx);

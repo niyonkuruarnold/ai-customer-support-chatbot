@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -75,6 +76,40 @@ public class TicketController {
     }
 
     /**
+     * Admin: update a ticket's status and/or assigned agent in a single call.
+     * Accepts optional "status" and "assignedAgent" fields in the request body.
+     */
+    @Operation(
+            summary = "Update ticket",
+            description = "Admin update to set status and/or assigned agent on a ticket in a single call. " +
+                    "Allowed status values: OPEN, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED. " +
+                    "Requires HTTP Basic authentication.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ticket updated"),
+            @ApiResponse(responseCode = "400", description = "Invalid status value"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Ticket not found")
+    })
+    @PatchMapping("/{id}")
+    public ResponseEntity<TicketDto> updateTicket(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, String> body) {
+        String status = body.get("status");
+        String agent = body.get("assignedAgent");
+        com.codafriqa.ai_customer_support_chatbot.model.SupportTicket ticket = null;
+        if (status != null && !status.isBlank()) {
+            ticket = ticketService.updateStatus(id, status);
+        }
+        if (agent != null) {
+            ticket = ticketService.updateAssignedAgent(id, agent.isBlank() ? null : agent);
+        }
+        if (ticket == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(ticketService.toDto(ticket));
+    }
+
+    /**
      * Admin: update a ticket's status to any valid value.
      */
     @Operation(
@@ -122,12 +157,14 @@ public class TicketController {
     /**
      * Admin: permanently delete a ticket.
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(
             summary = "Delete ticket",
             description = "Permanently remove a ticket and its associated data. " +
-                    "Requires HTTP Basic authentication.")
+                    "Requires HTTP Basic authentication and ADMIN role.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Ticket deleted successfully"),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions (ADMIN role required)"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
             @ApiResponse(responseCode = "404", description = "Ticket not found")
     })

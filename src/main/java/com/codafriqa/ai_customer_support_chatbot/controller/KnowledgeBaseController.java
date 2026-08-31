@@ -5,6 +5,7 @@ import com.codafriqa.ai_customer_support_chatbot.service.KnowledgeBaseService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -38,7 +39,9 @@ public class KnowledgeBaseController {
      * The file is parsed, chunked, embedded, and stored in the vector store.
      *
      * POST /api/v1/admin/knowledge-base/upload  (multipart: file + optional title)
+     * Requires ADMIN role.
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<KnowledgeDocumentDto> upload(
             @RequestParam("file") MultipartFile file,
@@ -61,6 +64,7 @@ public class KnowledgeBaseController {
     }
 
     /** Remove a document (and its chunks) from the vector store -> DELETE /api/v1/admin/knowledge-base/{id} */
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteDocument(@PathVariable Long id) {
         knowledgeBaseService.deleteDocument(id);

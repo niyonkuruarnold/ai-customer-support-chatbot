@@ -47,6 +47,19 @@ public class ToolController {
     }
 
     @Operation(
+            summary = "List all tools",
+            description = "Return every tool in the system. Used by the System Indexer dashboard.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Tool list returned"),
+    })
+    @GetMapping
+    public ResponseEntity<List<ToolDto>> listAllTools() {
+        List<ToolDto> dtos = toolService.getAllTools()
+                .stream().map(toolService::toDto).toList();
+        return ResponseEntity.ok(dtos);
+    }
+
+    @Operation(
             summary = "Get tool by ID",
             description = "Retrieve a single tool's details.")
     @ApiResponses({

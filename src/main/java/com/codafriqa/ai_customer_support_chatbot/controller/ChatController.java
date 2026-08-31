@@ -3,7 +3,9 @@ package com.codafriqa.ai_customer_support_chatbot.controller;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatRequestDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatResponseDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.SessionInfoDto;
+import com.codafriqa.ai_customer_support_chatbot.dto.SuggestedQuestionsDto;
 import com.codafriqa.ai_customer_support_chatbot.service.ChatService;
+import com.codafriqa.ai_customer_support_chatbot.service.RagService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -14,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * REST Controller for handling chat requests from the Vue.js frontend.
@@ -33,9 +37,11 @@ public class ChatController {
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
     private final ChatService chatService;
+    private final RagService ragService;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, RagService ragService) {
         this.chatService = chatService;
+        this.ragService = ragService;
     }
 
     /**
@@ -57,17 +63,85 @@ public class ChatController {
     @PostMapping({"", "/message"})
     public ResponseEntity<ChatResponseDto> sendMessage(@Valid @RequestBody ChatRequestDto request) {
         try {
-            ChatResponseDto response = chatService.sendMessage(request.getMessage(), request.getSessionId());
-            return ResponseEntity.ok(response);
+                        return ResponseEntity.ok(generateResponse(request.getMessage(), request.getSessionId()));
         } catch (Exception e) {
-            log.error("Chat request failed ({}: {}); returning fallback response",
+            log.error("Chat request failed ({}: {})",
                     e.getClass().getSimpleName(), e.getMessage(), e);
-            ChatResponseDto fallback = new ChatResponseDto(
-                    "I'm sorry, I'm having trouble processing your request right now. " +
-                    "Please try again shortly, or ask to speak with a human support agent.",
-                    request.getSessionId(), null);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(fallback);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(errorResponse(request.getSessionId(), e));
         }
+    }
+
+    /**
+     * Session-oriented alias for clients that include the session id in the
+     * URL. It delegates to the same persistence, RAG retrieval, and AI
+     * generation pipeline as the primary chat route.
+     */
+    @PostMapping({"/session/{id}/messages", "/sessions/{id}/messages"})
+    public ResponseEntity<ChatResponseDto> sendSessionMessage(
+            @PathVariable Long id, @Valid @RequestBody ChatRequestDto request) {
+        try {
+            return ResponseEntity.ok(generateResponse(request.getMessage(), id));
+        } catch (Exception e) {
+            log.error("Session chat request failed ({}: {})",
+                    e.getClass().getSimpleName(), e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(fallbackResponse(id, e));
+        }
+    }
+
+    private ChatResponseDto generateResponse(String message, Long sessionId) {
+        return chatService.sendMessage(message, sessionId);
+    }
+
+    private ChatResponseDto fallbackResponse(Long sessionId, Exception exception) {
+                return errorResponse(sessionId, exception);
+        }
+
+        private ChatResponseDto errorResponse(Long sessionId, Exception exception) {
+                String detail = buildFullErrorDetail(exception);
+                return new ChatResponseDto(detail, sessionId, null);
+    }
+
+        /**
+         * Build a full error detail string including the cause chain so the
+         * frontend (and logs) show the exact root cause (e.g. a 401 from
+         * Google Gemini API) rather than just the wrapper RuntimeException.
+         */
+        private static String buildFullErrorDetail(Exception exception) {
+                StringBuilder sb = new StringBuilder();
+                Throwable current = exception;
+                while (current != null) {
+                        if (sb.length() > 0) sb.append(" Caused by: ");
+                        sb.append(current.getClass().getName())
+                          .append(": ")
+                          .append(current.getMessage());
+                        current = current.getCause();
+                }
+                return sb.toString();
+    }
+
+    /**
+     * Fetch dynamically generated suggested questions from the vector store.
+     *
+     * <p>Extracts top sample queries from the currently indexed knowledge
+     * base content so the customer-facing frontend can display up-to-date
+     * quick-suggest chips instead of hardcoded fallback suggestions.
+     */
+    @Operation(
+            summary = "Get suggested questions",
+            description = "Return a list of suggested quick-question chips generated from the " +
+                    "currently indexed knowledge base content in the vector store.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Suggested questions returned successfully"),
+            @ApiResponse(responseCode = "500", description = "Vector store unavailable; fallback questions returned")
+    })
+    @GetMapping("/suggested-questions")
+    public ResponseEntity<SuggestedQuestionsDto> getSuggestedQuestions() {
+        List<String> questions = ragService.getSuggestedQuestions();
+        boolean fromKB = questions.stream().noneMatch(q ->
+                q.contains("support hours") || q.contains("track my order") ||
+                q.contains("refund policy") || q.contains("human agent"));
+        return ResponseEntity.ok(new SuggestedQuestionsDto(questions, fromKB));
     }
 
     /**
@@ -86,6 +160,25 @@ public class ChatController {
     @GetMapping("/session/{id}")
     public ResponseEntity<SessionInfoDto> getSession(@PathVariable Long id) {
         return ResponseEntity.ok(chatService.getSessionInfo(id));
+    }
+
+    /**
+     * Close/end the active chat session (marks it as CLOSED on the backend).
+     * The frontend calls this when the customer clicks "New Conversation"
+     * so the session is properly archived before the UI resets.
+     */
+    @Operation(
+            summary = "Close chat session",
+            description = "Mark an existing chat session as CLOSED. The frontend calls this when the customer " +
+                    "starts a new conversation so the session is properly archived.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Session closed successfully"),
+            @ApiResponse(responseCode = "404", description = "Session not found")
+    })
+    @PostMapping("/session/{id}/close")
+    public ResponseEntity<Void> closeSession(@PathVariable Long id) {
+        chatService.closeSession(id);
+        return ResponseEntity.ok().build();
     }
 
     /**

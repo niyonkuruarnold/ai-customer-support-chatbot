@@ -51,8 +51,8 @@ public class RagController {
             summary = "Ingest a document into the knowledge base",
             description = "Chunk and store support documentation into the pgvector vector store. " +
                     "The document is parsed with Spring AI document readers, split into ~500-token chunks, " +
-                    "embedded with OpenAI text-embedding-3-small, and stored for RAG retrieval. " +
-                    "Without OPENAI_API_KEY, fails fast with a 400 and rolls back cleanly.")
+                    "embedded with Google text-embedding-004, and stored for RAG retrieval. " +
+                    "Without GEMINI_API_KEY, fails fast with a 400 and rolls back cleanly.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Document ingested successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid request (empty title/content) or embedding failure"),

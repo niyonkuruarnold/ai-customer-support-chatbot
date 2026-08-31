@@ -1,12 +1,25 @@
 import axios from 'axios'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+
 /**
  * Axios client for the maintenance and tool management API.
  * Uses HTTP Basic auth — credentials kept in memory and synced via the
  * agent store's login/logout.
  */
 const maintenanceClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api',
+  baseURL: API_BASE,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30000,
+})
+
+/**
+ * Unauthenticated client for permitAll endpoints (e.g. GET /v1/tools).
+ * Sends no Authorization header so the request always succeeds even
+ * when the user has not logged in or credentials are stale.
+ */
+const publicClient = axios.create({
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })
@@ -59,6 +72,16 @@ export function getTool(id) {
  */
 export function getToolsByOwner(ownerId) {
   return request(async () => (await maintenanceClient.get(`/v1/tools/owner/${ownerId}`)).data)
+}
+
+/**
+ * Get all tools in the system.
+ * GET /v1/tools — permitAll endpoint, no auth required.
+ * Uses publicClient (no Authorization header) so the request always
+ * succeeds even when the user has not logged in.
+ */
+export function getAllTools() {
+  return request(async () => (await publicClient.get('/v1/tools')).data)
 }
 
 /**

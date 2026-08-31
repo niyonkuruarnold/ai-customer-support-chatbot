@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import TicketDashboard from './TicketDashboard.vue'
@@ -31,6 +31,9 @@ vi.mock('../../api/agent', () => ({
   addTicketNote: vi.fn(),
   resolveTicket: vi.fn(),
 }))
+
+// Mock global fetch for the /api/users/me call in the agent store login
+const originalFetch = global.fetch
 
 function ticket(overrides = {}) {
   return {
@@ -89,8 +92,16 @@ describe('TicketDashboard', () => {
     localStorage.clear()
     vi.clearAllMocks()
     useToasts().clear()
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: 1, email: 'admin', role: 'ADMIN' }),
+    })
     agentApi.fetchTickets.mockResolvedValue([])
     adminApi.fetchTickets.mockResolvedValue(pageResponse([]))
+  })
+
+  afterEach(() => {
+    global.fetch = originalFetch
   })
 
   it('shows the sign-in gate when unauthenticated', async () => {

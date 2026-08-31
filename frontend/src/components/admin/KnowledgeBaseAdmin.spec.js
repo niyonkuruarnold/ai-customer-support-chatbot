@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import KnowledgeBaseAdmin from './KnowledgeBaseAdmin.vue'
@@ -26,6 +26,9 @@ vi.mock('../../api/agent', () => ({
   addTicketNote: vi.fn(),
   resolveTicket: vi.fn(),
 }))
+
+// Mock global fetch for the /api/users/me call in the agent store login
+const originalFetch = global.fetch
 
 function document(overrides = {}) {
   return {
@@ -60,14 +63,28 @@ async function signIn(wrapper) {
   await flushPromises()
 }
 
+/** Switch to the Upload Files tab so the dropzone is visible. */
+async function switchToUploadTab(wrapper) {
+  await wrapper.find('[data-test="upload-tab-file"]').trigger('click')
+  await flushPromises()
+}
+
 describe('KnowledgeBaseAdmin', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
     useToasts().clear()
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: 1, email: 'admin', role: 'ADMIN' }),
+    })
     adminApi.fetchDocuments.mockResolvedValue([])
     adminApi.fetchChunks.mockResolvedValue([])
     agentApi.fetchTickets.mockResolvedValue([])
+  })
+
+  afterEach(() => {
+    global.fetch = originalFetch
   })
 
   it('shows the sign-in gate when unauthenticated', async () => {
@@ -97,7 +114,7 @@ describe('KnowledgeBaseAdmin', () => {
     await signIn(wrapper)
 
     expect(wrapper.text()).toContain('Invalid admin credentials')
-    expect(wrapper.find('[data-test="dropzone"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="paste-section"]').exists()).toBe(false)
   })
 
   it('uploads a dropped .md file and shows a success toast', async () => {
@@ -105,6 +122,7 @@ describe('KnowledgeBaseAdmin', () => {
     adminApi.fetchDocuments.mockResolvedValue([document(), document({ id: 2, title: 'FAQ', chunkCount: 3 })])
     const wrapper = await mountPage()
     await signIn(wrapper)
+    await switchToUploadTab(wrapper)
 
     const file = new File(['# FAQ'], 'faq.md', { type: 'text/markdown' })
     await wrapper
@@ -124,6 +142,7 @@ describe('KnowledgeBaseAdmin', () => {
     )
     const wrapper = await mountPage()
     await signIn(wrapper)
+    await switchToUploadTab(wrapper)
 
     const file = new File(['body'], 'guide.txt')
     const dropPromise = wrapper
@@ -142,6 +161,7 @@ describe('KnowledgeBaseAdmin', () => {
   it('rejects unsupported file types with an error toast and no API call', async () => {
     const wrapper = await mountPage()
     await signIn(wrapper)
+    await switchToUploadTab(wrapper)
 
     const file = new File(['PDF!'], 'manual.pdf', { type: 'application/pdf' })
     await wrapper
@@ -159,6 +179,7 @@ describe('KnowledgeBaseAdmin', () => {
     adminApi.uploadDocument.mockRejectedValue(err)
     const wrapper = await mountPage()
     await signIn(wrapper)
+    await switchToUploadTab(wrapper)
 
     const file = new File(['x'], 'x.txt')
     await wrapper
@@ -207,6 +228,7 @@ describe('KnowledgeBaseAdmin', () => {
     adminApi.uploadDocument.mockRejectedValue(authError(401))
     const wrapper = await mountPage()
     await signIn(wrapper)
+    await switchToUploadTab(wrapper)
 
     const file = new File(['x'], 'x.txt')
     await wrapper
@@ -216,5 +238,99 @@ describe('KnowledgeBaseAdmin', () => {
 
     expect(wrapper.text()).toContain('Admin sign in')
     expect(wrapper.text()).toContain('Session expired')
+  })
+
+  // ─── Paste Content tab ──────────────────────────────────────────────
+
+  it('shows the paste content tab by default after sign-in', async () => {
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    expect(wrapper.find('[data-test="paste-section"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="paste-textarea"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="paste-submit"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="dropzone"]').exists()).toBe(false)
+  })
+
+  it('switches between paste and upload tabs', async () => {
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    // Default: paste tab
+    expect(wrapper.find('[data-test="paste-section"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="dropzone"]').exists()).toBe(false)
+
+    // Switch to upload tab
+    await wrapper.find('[data-test="upload-tab-file"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="dropzone"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="paste-section"]').exists()).toBe(false)
+
+    // Switch back to paste tab
+    await wrapper.find('[data-test="upload-tab-paste"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="paste-section"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="dropzone"]').exists()).toBe(false)
+  })
+
+  it('disables Save & Index button when textarea is empty', async () => {
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    const btn = wrapper.find('[data-test="paste-submit"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+
+    await wrapper.find('[data-test="paste-textarea"]').setValue('Some content')
+    await flushPromises()
+    expect(btn.attributes('disabled')).toBeUndefined()
+  })
+
+  it('sends pasted content as a Blob file via uploadFile', async () => {
+    adminApi.uploadDocument.mockResolvedValue(document({ id: 2, chunkCount: 1, title: 'My Policies' }))
+    adminApi.fetchDocuments.mockResolvedValue([document(), document({ id: 2, title: 'My Policies' })])
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    await wrapper.find('[data-test="paste-title"]').setValue('My Policies')
+    await wrapper.find('[data-test="paste-textarea"]').setValue('# Policy\nAll employees must…')
+    await wrapper.find('[data-test="paste-form"]').trigger('submit')
+    await flushPromises()
+
+    // uploadDocument should have been called with a File whose name is derived from the title
+    expect(adminApi.uploadDocument).toHaveBeenCalledTimes(1)
+    const [fileArg, titleArg] = adminApi.uploadDocument.mock.calls[0]
+    expect(titleArg).toBe('My Policies')
+    expect(fileArg).toBeInstanceOf(File)
+    expect(fileArg.name).toBe('company_policies.md')
+    expect(fileArg.type).toBe('text/markdown')
+
+    expect(wrapper.text()).toContain('indexed')
+    expect(wrapper.text()).toContain('My Policies')
+  })
+
+  it('shows an error when pasted content is empty on submit', async () => {
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    await wrapper.find('[data-test="paste-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Paste some content first')
+    expect(adminApi.uploadDocument).not.toHaveBeenCalled()
+  })
+
+  it('clears textarea and title after successful paste index', async () => {
+    adminApi.uploadDocument.mockResolvedValue(document({ id: 2 }))
+    adminApi.fetchDocuments.mockResolvedValue([document(), document({ id: 2 })])
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    await wrapper.find('[data-test="paste-title"]').setValue('Title')
+    await wrapper.find('[data-test="paste-textarea"]').setValue('Content')
+    await wrapper.find('[data-test="paste-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="paste-textarea"]').element.value).toBe('')
+    expect(wrapper.find('[data-test="paste-title"]').element.value).toBe('')
   })
 })

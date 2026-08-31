@@ -4,6 +4,10 @@ import { useKnowledgeBaseStore } from '../../stores/knowledgeBase'
 import { useAgentStore } from '../../stores/agent'
 import { useToasts } from '../../composables/useToasts'
 
+const props = defineProps({
+  /** When true, the parent shell provides the header and auth gate. */
+  embedded: { type: Boolean, default: false },
+})
 defineEmits(['switch-to-chat'])
 
 const store = useKnowledgeBaseStore()
@@ -15,6 +19,12 @@ const ACCEPTED = '.txt,.text,.md,.markdown'
 
 const dragActive = ref(false)
 const fileInput = ref(null)
+
+// Paste-content tab
+const uploadTab = ref('paste') // 'upload' | 'paste'
+const pasteContent = ref('')
+const pasteTitle = ref('')
+const pasteError = ref('')
 
 const username = ref('')
 const password = ref('')
@@ -116,6 +126,28 @@ function onPick(event) {
   event.target.value = '' // allow re-selecting the same file
 }
 
+/** Paste / type raw text and index it as a .md Blob file. */
+async function handlePasteSubmit() {
+  pasteError.value = ''
+  const text = pasteContent.value.trim()
+  if (!text) {
+    pasteError.value = 'Paste some content first.'
+    return
+  }
+  const title = pasteTitle.value.trim() || 'Pasted content'
+  const file = new File([text], 'company_policies.md', {
+    type: 'text/markdown',
+  })
+  const ok = await store.uploadFile(file, title)
+  if (ok) {
+    push('success', `"${title}" indexed — chunks embedded into the vector store.`)
+    pasteContent.value = ''
+    pasteTitle.value = ''
+  } else {
+    pasteError.value = store.error || 'Could not index the pasted content.'
+  }
+}
+
 async function removeDocument(doc) {
   const ok = await store.removeDocument(doc.id)
   if (ok) {
@@ -135,7 +167,7 @@ function formatDate(value) {
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col bg-slate-100 font-sans text-slate-900">
+  <div class="flex h-full flex-col bg-slate-100 font-sans text-slate-900">
     <!-- Toasts -->
     <div
       class="pointer-events-none fixed top-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
@@ -167,8 +199,8 @@ function formatDate(value) {
       </div>
     </div>
 
-    <!-- Header -->
-    <header class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+    <!-- Header (standalone mode only) -->
+    <header v-if="!embedded" class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
         <div
           class="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-800 text-lg text-white shadow-md"
@@ -207,8 +239,8 @@ function formatDate(value) {
       </div>
     </header>
 
-    <!-- Sign-in gate -->
-    <div v-if="!isAuthenticated" class="flex flex-1 items-center justify-center p-4">
+    <!-- Sign-in gate (standalone mode only) -->
+    <div v-if="!embedded && !isAuthenticated" class="flex flex-1 items-center justify-center p-4">
       <form
         class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
         @submit.prevent="handleLogin"
@@ -252,7 +284,7 @@ function formatDate(value) {
     </div>
 
     <!-- Document management -->
-    <main v-else class="min-h-0 flex-1 overflow-y-auto">
+    <main v-if="embedded || isAuthenticated" class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-5xl space-y-6 p-6">
         <div>
           <h2 class="text-lg font-semibold text-slate-800">Document management</h2>
@@ -263,8 +295,97 @@ function formatDate(value) {
           </p>
         </div>
 
-        <!-- Drag & drop upload -->
+        <!-- Add content tabs -->
+        <div class="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+          <button
+            type="button"
+            data-test="upload-tab-paste"
+            @click="uploadTab = 'paste'"
+            class="flex-1 rounded-lg py-2 text-sm font-medium transition"
+            :class="
+              uploadTab === 'paste'
+                ? 'bg-white text-indigo-700 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
+          >
+            ✏️ Paste Content
+          </button>
+          <button
+            type="button"
+            data-test="upload-tab-file"
+            @click="uploadTab = 'upload'"
+            class="flex-1 rounded-lg py-2 text-sm font-medium transition"
+            :class="
+              uploadTab === 'upload'
+                ? 'bg-white text-indigo-700 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
+          >
+            📁 Upload Files
+          </button>
+        </div>
+
+        <!-- Paste Content tab -->
         <section
+          v-if="uploadTab === 'paste'"
+          data-test="paste-section"
+          class="rounded-2xl border border-slate-200 bg-white p-6"
+        >
+          <div v-if="store.uploading" class="flex flex-col items-center py-8">
+            <div class="flex size-14 items-center justify-center rounded-2xl bg-indigo-100" aria-hidden="true">
+              <svg class="size-7 animate-spin text-indigo-600" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </div>
+            <p class="mt-4 text-sm font-medium text-indigo-600">
+              Indexing — generating vector embeddings…
+            </p>
+          </div>
+
+          <form v-else data-test="paste-form" class="space-y-4" @submit.prevent="handlePasteSubmit">
+            <label class="block text-sm font-medium text-slate-700">
+              Document title
+              <input
+                v-model="pasteTitle"
+                type="text"
+                data-test="paste-title"
+                placeholder="e.g. Company Policies"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </label>
+            <label class="block text-sm font-medium text-slate-700">
+              Content (Markdown or plain text)
+              <textarea
+                v-model="pasteContent"
+                rows="12"
+                data-test="paste-textarea"
+                placeholder="Paste or type your document content here…&#10;&#10;Supports Markdown formatting. The content will be indexed\ninto the vector store so the AI assistant can answer from it."
+                class="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-3 font-mono text-sm leading-relaxed text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+              ></textarea>
+            </label>
+            <p v-if="pasteError" class="text-sm text-red-600" role="alert">
+              {{ pasteError }}
+            </p>
+            <div class="flex items-center justify-between">
+              <p class="text-xs text-slate-400">
+                Pasted content is saved as a <code>.md</code> file and indexed into the vector store.
+              </p>
+              <button
+                type="submit"
+                data-test="paste-submit"
+                :disabled="!pasteContent.trim()"
+                class="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition enabled:hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Save & Index
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Drag & drop upload tab -->
+        <section
+          v-else
           data-test="dropzone"
           class="rounded-2xl border-2 border-dashed p-8 transition"
           :class="

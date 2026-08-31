@@ -8,8 +8,9 @@ import axios from 'axios'
  */
 const adminClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api',
-  headers: { 'Content-Type': 'application/json' },
-  // Embedding + indexing of large documents can take a while
+  // Do NOT set a global Content-Type header here — axios must be free to
+  // set multipart/form-data with the correct boundary when sending FormData
+  // (file uploads). For JSON payloads axios auto-sets application/json.
   timeout: 120000,
 })
 
@@ -45,7 +46,7 @@ async function request(fn) {
 /**
  * Upload a support document (.txt/.md/.pdf) and index it.
  *
- * POST /v1/admin/knowledge-base/upload (multipart: file + optional title)
+ * POST /admin/documents/upload (multipart: file + optional title)
  * @param {File} file
  * @param {string} [title]
  */
@@ -55,7 +56,7 @@ export function uploadDocument(file, title) {
   if (title) form.append('title', title)
   return request(
     async () =>
-      (await adminClient.post('/v1/admin/knowledge-base/upload', form)).data,
+      (await adminClient.post('/admin/documents/upload', form)).data,
   )
 }
 

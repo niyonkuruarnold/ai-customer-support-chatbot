@@ -4,10 +4,18 @@ import { closeTicket, fetchTickets, updateTicketStatus, updateTicketAgent, delet
 import { useAgentStore } from '../../stores/agent'
 import { useToasts } from '../../composables/useToasts'
 
+const props = defineProps({
+  /** When true, the parent shell provides the header and auth gate. */
+  embedded: { type: Boolean, default: false },
+})
 defineEmits(['switch-to-chat'])
 
 const agentStore = useAgentStore()
 const { toasts, push, remove } = useToasts()
+
+// RBAC helpers
+const isAdmin = computed(() => agentStore.isAdmin)
+const isAgent = computed(() => agentStore.isAgent)
 
 const username = ref('')
 const password = ref('')
@@ -59,7 +67,13 @@ const priorityClass = {
 }
 
 onMounted(() => {
-  if (agentStore.authenticated) load()
+  if (agentStore.authenticated) {
+    // Agents can only see their assigned or escalated tickets by default
+    if (isAgent.value) {
+      filters.status = 'ESCALATED'
+    }
+    load()
+  }
 })
 
 // A 401 mid-session sends the user back to the sign-in gate with a toast
@@ -240,7 +254,7 @@ function formatDate(value) {
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col bg-slate-100 font-sans text-slate-900">
+  <div class="flex h-full flex-col bg-slate-100 font-sans text-slate-900">
     <!-- Toasts -->
     <div
       class="pointer-events-none fixed top-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
@@ -272,8 +286,8 @@ function formatDate(value) {
       </div>
     </div>
 
-    <!-- Header -->
-    <header class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+    <!-- Header (standalone mode only) -->
+    <header v-if="!embedded" class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
         <div
           class="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 text-lg text-white shadow-md"
@@ -287,6 +301,12 @@ function formatDate(value) {
             <template v-if="isAuthenticated">
               Signed in as
               <span class="font-medium text-slate-700">{{ agentStore.agentName }}</span>
+              <span
+                class="ml-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                :class="isAdmin ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'"
+              >
+                {{ isAdmin ? 'ADMIN' : 'AGENT' }}
+              </span>
               · {{ totalElements }} ticket{{ totalElements === 1 ? '' : 's' }}
             </template>
             <template v-else>Ticket lifecycle management</template>
@@ -310,8 +330,8 @@ function formatDate(value) {
       </div>
     </header>
 
-    <!-- Sign-in gate -->
-    <div v-if="!isAuthenticated" class="flex flex-1 items-center justify-center p-4">
+    <!-- Sign-in gate (standalone mode only) -->
+    <div v-if="!embedded && !isAuthenticated" class="flex flex-1 items-center justify-center p-4">
       <form
         class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
         @submit.prevent="handleLogin"
@@ -355,7 +375,7 @@ function formatDate(value) {
     </div>
 
     <!-- Ticket management -->
-    <main v-else class="min-h-0 flex-1 overflow-y-auto">
+    <main v-if="embedded || isAuthenticated" class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-5xl space-y-6 p-6">
         <div>
           <h2 class="text-lg font-semibold text-slate-800">Ticket lifecycle</h2>
@@ -371,6 +391,11 @@ function formatDate(value) {
         <section
           class="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4"
         >
+          <!-- Agent role notice -->
+          <p v-if="isAgent" class="w-full text-xs text-slate-500">
+            🎧 As an agent you can view your assigned and escalated tickets.
+            Status and assignment changes are limited.
+          </p>
           <label class="block text-xs font-medium text-slate-600">
             Status
             <select
@@ -481,7 +506,7 @@ function formatDate(value) {
                   <th class="px-4 py-3 font-semibold">Priority</th>
                   <th class="px-4 py-3 font-semibold">Agent</th>
                   <th class="px-4 py-3 font-semibold">Updated</th>
-                  <th class="min-w-[180px] px-4 py-3 text-right font-semibold">Actions</th>
+                  <th class="min-w-[200px] px-4 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
@@ -521,7 +546,7 @@ function formatDate(value) {
                   <td class="px-4 py-3 text-xs whitespace-nowrap text-slate-500">
                     {{ formatDate(ticket.updatedAt) }}
                   </td>
-                  <td class="min-w-[180px] px-4 py-3 text-right">
+                  <td class="min-w-[200px] px-4 py-3 text-right">
                     <div class="flex flex-wrap items-center justify-end gap-1.5">
                       <!-- Status select -->
                       <select
@@ -562,16 +587,30 @@ function formatDate(value) {
                         {{ closingId === ticket.id ? 'Closing…' : 'Close' }}
                       </button>
 
-                      <!-- Delete button -->
+                      <!-- Delete button (icon) — admin only -->
                       <button
+                        v-if="isAdmin"
                         type="button"
                         :disabled="deletingId === ticket.id"
                         data-test="delete-ticket"
                         @click="handleDelete(ticket)"
-                        class="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        class="flex size-7 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-500 transition hover:bg-red-100 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
                         :aria-label="`Delete ticket ${ticket.id}`"
                       >
-                        {{ deletingId === ticket.id ? 'Deleting…' : '🗑 Delete' }}
+                        <svg
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke-width="1.8"
+                          stroke="currentColor"
+                          class="size-3.5"
+                          aria-hidden="true"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                          />
+                        </svg>
                       </button>
                     </div>
                   </td>

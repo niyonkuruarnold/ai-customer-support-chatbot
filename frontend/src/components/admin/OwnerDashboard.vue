@@ -4,6 +4,10 @@ import { useAgentStore } from '../../stores/agent'
 import { useMaintenanceStore } from '../../stores/maintenance'
 import MaintenanceHistory from './MaintenanceHistory.vue'
 
+const props = defineProps({
+  /** When true, the parent shell provides the header and auth gate. */
+  embedded: { type: Boolean, default: false },
+})
 const emit = defineEmits(['switch-to-chat'])
 
 const agentStore = useAgentStore()
@@ -43,9 +47,8 @@ const toolCountByStatus = computed(() => ({
 }))
 
 onMounted(() => {
-  if (isAuthenticated.value && agentStore.userId) {
-    maintenanceStore.fetchTools(agentStore.userId)
-  }
+  // GET /v1/tools is a permitAll endpoint — always fetch, no auth required.
+  maintenanceStore.fetchTools()
 })
 
 async function handleLogin() {
@@ -56,9 +59,7 @@ async function handleLogin() {
     agentStore.stopPolling()
     username.value = ''
     password.value = ''
-    if (agentStore.userId) {
-      await maintenanceStore.fetchTools(agentStore.userId)
-    }
+    await maintenanceStore.fetchTools()
   } catch (err) {
     loginError.value =
       err?.status === 401
@@ -87,10 +88,7 @@ function closeMaintenanceModal() {
 }
 
 async function handleStatusChanged() {
-  // Refresh tools list
-  if (agentStore.userId) {
-    await maintenanceStore.fetchTools(agentStore.userId)
-  }
+  await maintenanceStore.fetchTools()
 }
 
 async function handleToggleMaintenance(tool) {
@@ -100,9 +98,7 @@ async function handleToggleMaintenance(tool) {
     } else if (tool.status === 'AVAILABLE') {
       await maintenanceStore.updateToolAvailability(tool.id, 'IN_MAINTENANCE')
     }
-    if (agentStore.userId) {
-      await maintenanceStore.fetchTools(agentStore.userId)
-    }
+    await maintenanceStore.fetchTools()
   } catch (err) {
     console.error('Failed to toggle maintenance:', err)
   }
@@ -130,9 +126,9 @@ function formatDate(d) {
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col bg-slate-100 font-sans text-slate-900">
-    <!-- Header -->
-    <header class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+  <div class="flex h-full flex-col bg-slate-100 font-sans text-slate-900">
+    <!-- Header (standalone mode only) -->
+    <header v-if="!embedded" class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
         <div
           class="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-md"
@@ -167,8 +163,8 @@ function formatDate(d) {
       </div>
     </header>
 
-    <!-- Sign-in gate -->
-    <div v-if="!isAuthenticated" class="flex flex-1 items-center justify-center p-4">
+    <!-- Sign-in gate (standalone mode only) -->
+    <div v-if="!embedded && !isAuthenticated" class="flex flex-1 items-center justify-center p-4">
       <form
         class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
         @submit.prevent="handleLogin"
@@ -211,7 +207,7 @@ function formatDate(d) {
     </div>
 
     <!-- Main content -->
-    <main v-else class="min-h-0 flex-1 overflow-y-auto">
+    <main v-if="embedded || isAuthenticated" class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-5xl space-y-6 p-6">
 
         <!-- Status summary cards -->

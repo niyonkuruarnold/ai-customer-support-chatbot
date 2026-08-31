@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import {
+  getAllTools,
   getToolsByOwner,
   updateToolStatus,
   createMaintenanceLog,
@@ -45,12 +46,12 @@ export const useMaintenanceStore = defineStore('maintenance', {
   },
 
   actions: {
-    /** Load all tools for the current owner. */
+    /** Load tools — all tools when no ownerId is given, otherwise owner-specific. */
     async fetchTools(ownerId) {
       this.isLoading = true
       this.error = null
       try {
-        this.tools = await getToolsByOwner(ownerId)
+        this.tools = ownerId ? await getToolsByOwner(ownerId) : await getAllTools()
       } catch (err) {
         this.error = err.message || 'Failed to load tools'
       } finally {

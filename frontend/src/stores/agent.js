@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import * as agentApi from '../api/agent'
 import * as adminApi from '../api/admin'
+import { setMaintenanceAuth, clearMaintenanceAuth } from '../api/maintenance'
 
 // How often the agent workspace refreshes the ticket queue + the open
 // conversation, so new escalations and customer messages appear live.
@@ -22,6 +23,16 @@ export const useAgentStore = defineStore('agent', {
   state: () => ({
     agentName: '',
     authenticated: false,
+    userId: null,
+    userRole: (() => {
+      const stored = localStorage.getItem('ai-support-chat:role')
+      // Migrate legacy 'USER' role to 'CUSTOMER'
+      if (stored === 'USER') {
+        localStorage.setItem('ai-support-chat:role', 'CUSTOMER')
+        return 'CUSTOMER'
+      }
+      return stored || 'CUSTOMER'
+    })(),
     tickets: [],
     activeTicket: null, // AgentTicketDetailDto
     loading: false,
@@ -32,6 +43,9 @@ export const useAgentStore = defineStore('agent', {
   }),
 
   getters: {
+    isAdmin: (state) => state.userRole === 'ADMIN',
+    isAgent: (state) => state.userRole === 'AGENT',
+    isUser: (state) => !state.userRole || state.userRole === 'CUSTOMER',
     activeMessages: (state) => state.activeTicket?.messages ?? [],
     activeNotes: (state) => state.activeTicket?.internalNotes ?? [],
     activeSummary: (state) => state.activeTicket?.aiSummary ?? '',
@@ -48,19 +62,50 @@ export const useAgentStore = defineStore('agent', {
       agentApi.setAgentAuth(username, password)
       // The knowledge base manager reuses the same Basic credentials
       adminApi.setAdminAuth(username, password)
+      setMaintenanceAuth(username, password)
       this.agentName = username
       this.error = null
+      // Fetch the authenticated user's role from the backend
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+        const me = await fetch(`${apiBase}/users/me`, {
+          headers: { Authorization: `Basic ${btoa(`${username}:${password}`)}` },
+        })
+        if (me.ok) {
+          const profile = await me.json()
+          this.userId = profile.id || null
+          this.userRole = profile.role || 'AGENT'
+          localStorage.setItem('ai-support-chat:role', this.userRole)
+        } else {
+          // Fallback: assume AGENT if /api/users/me is unavailable
+          this.userRole = 'AGENT'
+          localStorage.setItem('ai-support-chat:role', this.userRole)
+        }
+      } catch {
+        this.userRole = 'AGENT'
+        localStorage.setItem('ai-support-chat:role', this.userRole)
+      }
       await this.fetchTickets({ throwOnError: true })
       this.authenticated = true
       this.startPolling()
+    },
+
+    /** Dev-only: switch role without backend auth. */
+    setUserRole(role) {
+      this.userRole = role
+      localStorage.setItem('ai-support-chat:role', role)
     },
 
     logout() {
       this.stopPolling()
       agentApi.clearAgentAuth()
       adminApi.clearAdminAuth()
+      clearMaintenanceAuth()
       this.authenticated = false
       this.agentName = ''
+      this.userId = null
+      this.userRole = 'CUSTOMER'
+      try { localStorage.setItem('ai-support-chat:role', 'CUSTOMER') } catch { /* ignore */ }
       this.tickets = []
       this.activeTicket = null
       this.error = null
@@ -213,6 +258,7 @@ export const useAgentStore = defineStore('agent', {
         this.agentName = ''
         agentApi.clearAgentAuth()
         adminApi.clearAdminAuth()
+        clearMaintenanceAuth()
       }
     },
   },

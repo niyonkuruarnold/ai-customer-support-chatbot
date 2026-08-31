@@ -29,7 +29,12 @@ const apiClient = axios.create({
  */
 export async function sendChatMessage(message, sessionId) {
   const { data } = await apiClient.post('/v1/chat/message', { message, sessionId })
-  return data
+  return {
+    ...data,
+    // `response` is the current backend contract; `content` keeps the
+    // client compatible with message-shaped chat endpoints.
+    response: data.response ?? data.content ?? '',
+  }
 }
 
 /**
@@ -74,6 +79,51 @@ export async function resetBackendSession() {
 }
 
 /**
+ * Ask the backend to close/end a chat session (mark it as CLOSED).
+ * Called by the customer frontend when starting a new conversation.
+ *
+ * POST /v1/chat/session/{id}/close
+ *
+ * Resolves quietly when the backend has no such endpoint, so clearing
+ * the UI never depends on the backend being reachable.
+ *
+ * @param {number|string} sessionId
+ * @returns {Promise<void>}
+ */
+export async function closeChatSession(sessionId) {
+  if (!sessionId) return
+  try {
+    await apiClient.post(`/v1/chat/session/${sessionId}/close`)
+  } catch (err) {
+    // Intentional: a failed backend close must not block clearing the UI
+  }
+}
+
+/**
+ * Fetch dynamically generated suggested questions from the backend.
+ *
+ * The questions are extracted from the currently indexed knowledge base
+ * content in the vector store, so they always reflect the latest uploaded
+ * documents.  Falls back to the provided defaults if the backend is
+ * unreachable.
+ *
+ * GET /v1/chat/suggested-questions
+ *   returns: { questions: string[], fromKnowledgeBase: boolean }
+ *
+ * @param {string[]} fallback  default questions if the request fails
+ * @returns {Promise<string[]>}
+ */
+export async function fetchSuggestedQuestions(fallback = []) {
+  try {
+    const { data } = await apiClient.get('/v1/chat/suggested-questions')
+    return data?.questions?.length ? data.questions : fallback
+  } catch {
+    // Backend unreachable or endpoint not yet deployed — use fallbacks
+    return fallback
+  }
+}
+
+/**
  * Turn an Axios error into a user-friendly message, preferring the
  * structured error the backend returns (GlobalExceptionHandler).
  *
@@ -81,16 +131,13 @@ export async function resetBackendSession() {
  * @returns {string}
  */
 export function buildErrorMessage(err) {
-  if (!err.response) {
-    return (
-      'Could not reach the backend. Make sure the Spring Boot server is ' +
-      'running on port 8080, then try again.'
-    )
+  const data = err?.response?.data
+  if (typeof data === 'string' && data.trim()) return data
+  if (data && typeof data === 'object') {
+    if (typeof data.response === 'string' && data.response.trim()) return data.response
+    if (typeof data.content === 'string' && data.content.trim()) return data.content
+    if (typeof data.message === 'string' && data.message.trim()) return data.message
   }
-  const status = err.response.status
-  const data = err.response.data
-  if (data && typeof data.message === 'string') {
-    return `Something went wrong (${status}): ${data.message}`
-  }
-  return `Request failed with status ${status}. Please try again.`
+  if (typeof err?.message === 'string' && err.message.trim()) return err.message
+  return 'Unknown chat request error'
 }

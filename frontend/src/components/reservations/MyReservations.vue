@@ -8,6 +8,10 @@ import StarRating from './StarRating.vue'
 import ReviewForm from './ReviewForm.vue'
 import ReviewList from './ReviewList.vue'
 
+const props = defineProps({
+  /** When true, the parent shell provides the header and auth gate. */
+  embedded: { type: Boolean, default: false },
+})
 const emit = defineEmits(['switch-to-chat'])
 
 const agentStore = useAgentStore()
@@ -180,9 +184,9 @@ function formatDate(d) {
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col bg-slate-100 font-sans text-slate-900">
-    <!-- Header -->
-    <header class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+  <div class="flex h-full flex-col bg-slate-100 font-sans text-slate-900">
+    <!-- Header (standalone mode only) -->
+    <header v-if="!embedded" class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
         <div
           class="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md"
@@ -217,8 +221,8 @@ function formatDate(d) {
       </div>
     </header>
 
-    <!-- Sign-in gate -->
-    <div v-if="!isAuthenticated" class="flex flex-1 items-center justify-center p-4">
+    <!-- Sign-in gate (standalone mode only) -->
+    <div v-if="!embedded && !isAuthenticated" class="flex flex-1 items-center justify-center p-4">
       <form
         class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
         @submit.prevent="handleLogin"
@@ -261,7 +265,7 @@ function formatDate(d) {
     </div>
 
     <!-- Main content -->
-    <main v-else class="min-h-0 flex-1 overflow-y-auto">
+    <main v-if="embedded || isAuthenticated" class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-5xl space-y-6 p-6">
 
         <!-- Tab bar -->

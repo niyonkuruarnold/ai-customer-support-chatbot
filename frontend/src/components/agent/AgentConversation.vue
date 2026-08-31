@@ -2,12 +2,16 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useAgentStore } from '../../stores/agent'
 import ChatMessage from '../ChatMessage.vue'
+import { updateTicketStatus, updateTicketAgent } from '../../api/admin'
 
 const store = useAgentStore()
 
 const replyText = ref('')
 const noteText = ref('')
 const feedRef = ref(null)
+const statusLoading = ref(false)
+const agentLoading = ref(false)
+const assigneeInput = ref('')
 
 const SENDER_TO_ROLE = { USER: 'user', AI: 'assistant', AGENT: 'agent' }
 
@@ -62,6 +66,51 @@ function saveNote() {
   store.addNote(noteText.value)
   noteText.value = ''
 }
+
+/** Status update toggles (RESOLVED, CLOSED) */
+const STATUS_OPTIONS = [
+  { value: 'OPEN', label: 'Open', class: 'bg-sky-100 text-sky-700' },
+  { value: 'IN_PROGRESS', label: 'In Progress', class: 'bg-indigo-100 text-indigo-700' },
+  { value: 'RESOLVED', label: 'Resolved', class: 'bg-emerald-100 text-emerald-700' },
+  { value: 'CLOSED', label: 'Closed', class: 'bg-slate-200 text-slate-600' },
+]
+
+const currentStatusLabel = computed(() => {
+  const opt = STATUS_OPTIONS.find((s) => s.value === store.activeStatus)
+  return opt ? opt.label : store.activeStatus
+})
+const currentStatusClass = computed(() => {
+  const opt = STATUS_OPTIONS.find((s) => s.value === store.activeStatus)
+  return opt ? opt.class : 'bg-slate-100 text-slate-600'
+})
+
+async function handleStatusChange(newStatus) {
+  if (!store.activeTicket || newStatus === store.activeStatus) return
+  statusLoading.value = true
+  try {
+    const updated = await updateTicketStatus(store.activeTicket.id, newStatus)
+    store.activeTicket = { ...store.activeTicket, status: updated.status }
+  } catch {
+    store.activeError = 'Could not update ticket status.'
+  } finally {
+    statusLoading.value = false
+  }
+}
+
+/** Agent assignment */
+async function handleAssign() {
+  if (!store.activeTicket || !assigneeInput.value.trim()) return
+  agentLoading.value = true
+  try {
+    const updated = await updateTicketAgent(store.activeTicket.id, assigneeInput.value.trim())
+    store.activeTicket = { ...store.activeTicket, assignedAgent: updated.assignedAgent }
+    assigneeInput.value = ''
+  } catch {
+    store.activeError = 'Could not reassign ticket.'
+  } finally {
+    agentLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -100,7 +149,40 @@ function saveNote() {
               </span>
             </template>
           </p>
-          <div class="flex gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Status update dropdown -->
+            <select
+              :value="store.activeStatus"
+              :disabled="statusLoading"
+              @change="handleStatusChange($event.target.value)"
+              data-test="status-select"
+              class="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+              :class="currentStatusClass"
+            >
+              <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">
+                {{ s.label }}
+              </option>
+            </select>
+            <!-- Agent assignment -->
+            <div class="flex items-center gap-1">
+              <input
+                v-model="assigneeInput"
+                type="text"
+                :placeholder="store.activeTicket.assignedAgent || 'Assign agent…'"
+                data-test="assign-input"
+                class="w-28 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                @keydown.enter.prevent="handleAssign"
+              />
+              <button
+                type="button"
+                @click="handleAssign"
+                :disabled="agentLoading || !assigneeInput.trim()"
+                class="rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-600 transition enabled:hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {{ agentLoading ? '…' : 'Assign' }}
+              </button>
+            </div>
+            <!-- Take over / Resolve -->
             <button
               v-if="!store.activeIsAssigned"
               type="button"

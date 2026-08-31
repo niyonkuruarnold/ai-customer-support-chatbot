@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import {
   buildErrorMessage,
+  closeChatSession,
   fetchSessionInfo,
   resetBackendSession,
   sendChatMessage,
@@ -171,7 +172,9 @@ export const useChatStore = defineStore('chat', {
         return null
       }
 
-      const userMessage = this.addMessage('user', content, 'sending')
+      const userMessage = this.addMessage('user', content, 'sending', {
+        originalContent: content,
+      })
       this.isLoading = true
 
       try {
@@ -182,7 +185,7 @@ export const useChatStore = defineStore('chat', {
           this.persistSession()
         }
         if (data.status) this.sessionStatus = data.status
-        this.addMessage('assistant', data.response, 'sent', {
+        this.addMessage('assistant', data.response ?? data.content ?? '', 'sent', {
           ragUsed: data.ragUsed ?? false,
           contextReferences: data.contextReferences ?? [],
           sources: data.sourceCitations ?? [],
@@ -192,6 +195,7 @@ export const useChatStore = defineStore('chat', {
       } catch (err) {
         userMessage.status = 'failed'
         userMessage.error = buildErrorMessage(err)
+        userMessage.content = userMessage.error
         this.persist()
         return userMessage.id
       } finally {
@@ -210,7 +214,7 @@ export const useChatStore = defineStore('chat', {
       const failed = this.messages.find((m) => m.id === id)
       if (!failed || failed.role !== 'user') return null
 
-      const content = failed.content
+      const content = failed.originalContent ?? failed.content
       this.messages = this.messages.filter((m) => m.id !== id)
       this.persist()
       return this.sendMessage(content)
@@ -227,6 +231,26 @@ export const useChatStore = defineStore('chat', {
       this.persistSession()
       // Fire-and-forget: a no-op until the backend exposes a reset endpoint
       resetBackendSession().catch(() => {})
+    },
+
+    /**
+     * Close the current session on the backend (mark as CLOSED), then
+     * fully reset local state so the customer can start a fresh AI
+     * conversation immediately.
+     */
+    async closeAndResetConversation() {
+      const previousSessionId = this.sessionId
+      this.stopPolling()
+      // Close the session on the backend (fire-and-forget)
+      if (previousSessionId) {
+        closeChatSession(previousSessionId).catch(() => {})
+      }
+      this.messages = []
+      this.isLoading = false
+      this.sessionId = null
+      this.sessionStatus = null
+      this.persist()
+      this.persistSession()
     },
 
     /** Begin polling the backend for status changes + agent replies. */

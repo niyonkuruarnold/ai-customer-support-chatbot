@@ -5,6 +5,10 @@ import AgentTicketList from './AgentTicketList.vue'
 import AgentConversation from './AgentConversation.vue'
 import KnowledgeBaseManager from '../admin/KnowledgeBaseManager.vue'
 
+const props = defineProps({
+  /** When true, the parent shell provides the header and auth gate. */
+  embedded: { type: Boolean, default: false },
+})
 defineEmits(['switch-to-chat'])
 
 const store = useAgentStore()
@@ -52,9 +56,9 @@ async function handleLogin() {
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col bg-slate-100 font-sans text-slate-900">
-    <!-- Workspace header -->
-    <header class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+  <div class="flex h-full flex-col bg-slate-100 font-sans text-slate-900">
+    <!-- Workspace header (standalone mode only) -->
+    <header v-if="!embedded" class="z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
         <div
           class="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-700 to-slate-900 text-lg text-white shadow-md"
@@ -91,9 +95,9 @@ async function handleLogin() {
       </div>
     </header>
 
-    <!-- Login gate -->
+    <!-- Login gate (standalone mode only) -->
     <div
-      v-if="!store.authenticated"
+      v-if="!embedded && !store.authenticated"
       class="flex flex-1 items-center justify-center p-4"
     >
       <form
@@ -139,9 +143,10 @@ async function handleLogin() {
     </div>
 
     <!-- Workspace panels -->
-    <template v-else>
-      <!-- Tab navigation -->
+    <template v-if="embedded || store.authenticated">
+      <!-- Tab navigation (standalone mode only) -->
       <nav
+        v-if="!embedded"
         class="flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-4"
         aria-label="Workspace sections"
       >

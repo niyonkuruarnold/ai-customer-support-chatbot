@@ -1,8 +1,8 @@
 # CORS & Exception Handling Implementation Guide
 
-## ✅ What Was Implemented
+##  What Was Implemented
 
-### 1. **CORS Configuration (SecurityConfig.java)**
+### 1. CORS Configuration (SecurityConfig.java)
 Allows your Vue.js frontend to communicate with the backend without CORS errors.
 
 **Allowed Origins:**
@@ -19,7 +19,7 @@ Allows your Vue.js frontend to communicate with the backend without CORS errors.
 
 ---
 
-## 🛡️ Global Exception Handler (GlobalExceptionHandler.java)
+##  Global Exception Handler (GlobalExceptionHandler.java)
 Catches errors throughout the application and returns structured JSON responses instead of raw exceptions.
 
 ### Error Response Structure
@@ -49,7 +49,7 @@ Catches errors throughout the application and returns structured JSON responses 
 
 ---
 
-## 📨 Improved DTOs (Request/Response)
+##  Improved DTOs (Request/Response)
 
 ### ChatRequestDto
 ```java
@@ -183,7 +183,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/chat/health" -Method Get
 
 ---
 
-## 🔐 Security Notes
+##  Security Notes
 
 1. **CORS is production-safe:** Only whitelisted origins can access the backend
 2. **Frontend origin validation:** Always update `https://yourdomain.com` in SecurityConfig for production
@@ -192,14 +192,15 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/chat/health" -Method Get
 
 ---
 
-## 📋 Next Steps in Roadmap
 
-✅ **Completed:**
+## Next Steps in Roadmap
+
+ **Completed:**
 - CORS configuration for Vue.js
 - Global exception handling
 - Input validation
 
-⏳ **Planned:**
+**Planned:**
 - pgvector setup for RAG (Retrieval-Augmented Generation)
 - Chat session persistence
 - Admin APIs for document management
@@ -208,7 +209,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/chat/health" -Method Get
 
 ---
 
-## 📝 Files Created/Modified
+##  Files Created/Modified
 
 **Created:**
 - `GlobalExceptionHandler.java` - Centralized error handling

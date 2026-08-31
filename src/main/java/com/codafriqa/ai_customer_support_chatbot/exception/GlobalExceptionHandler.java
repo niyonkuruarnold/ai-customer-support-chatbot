@@ -1,6 +1,5 @@
 package com.codafriqa.ai_customer_support_chatbot.exception;
 
-import org.springframework.ai.openai.api.common.OpenAiApiClientErrorException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -8,8 +7,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -21,6 +27,8 @@ import java.util.Map;
  */
 @ControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**
      * Handle validation errors (e.g., @NotBlank, @Valid annotations).
@@ -56,7 +64,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * Handle OpenAI API errors (rate limits, authentication failures, etc.)
+     * Handle AI provider API errors (rate limits, authentication failures, etc.)
      */
     @ExceptionHandler(OpenAIApiException.class)
     public ResponseEntity<Map<String, Object>> handleOpenAIApiException(
@@ -66,31 +74,97 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         Map<String, Object> response = new HashMap<>();
         response.put("timestamp", LocalDateTime.now());
         response.put("status", ex.getStatus().value());
-        response.put("error", "OpenAI API Error");
+        response.put("error", "AI Provider Error");
         response.put("message", ex.getMessage());
+        addExactErrorFields(response, ex, ex.getStatus());
         response.put("path", request.getDescription(false).replace("uri=", ""));
         
         return new ResponseEntity<>(response, ex.getStatus());
     }
 
     /**
-     * Handle Spring AI OpenAI client errors (HTTP 4xx/5xx from the OpenAI
-     * endpoint that propagate as RuntimeException before reaching the chat
-     * service layer).
+     * Handle RestClient errors from the OpenAI embedding/chat HTTP calls.
+     * Logs the exact status code and response body to the server console.
      */
-    @ExceptionHandler(OpenAiApiClientErrorException.class)
-    public ResponseEntity<Map<String, Object>> handleOpenAiClientError(
-            OpenAiApiClientErrorException ex,
+    @ExceptionHandler(RestClientResponseException.class)
+    public ResponseEntity<Map<String, Object>> handleRestClientResponse(
+            RestClientResponseException ex,
             WebRequest request) {
-        
+
+        int status = ex.getRawStatusCode();
+        String body = ex.getResponseBodyAsString();
+        log.error("RestClient HTTP error {} from AI provider — body: {}", status, body, ex);
+
+        String userMessage = mapOpenAiHttpError(status, body);
+        HttpStatus responseStatus = status >= 400 && status < 600
+                ? HttpStatus.valueOf(status) : HttpStatus.BAD_GATEWAY;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("status", responseStatus.value());
+        response.put("error", "AI Provider Error");
+        response.put("message", userMessage);
+        addExactErrorFields(response, ex, responseStatus);
+        response.put("path", request.getDescription(false).replace("uri=", ""));
+
+        return new ResponseEntity<>(response, responseStatus);
+    }
+
+    /**
+     * Handle network/timeout errors when the OpenAI API is unreachable.
+     */
+    @ExceptionHandler(ResourceAccessException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceAccess(
+            ResourceAccessException ex,
+            WebRequest request) {
+
+        log.error("Could not reach AI provider API: {}", ex.getMessage(), ex);
+
         Map<String, Object> response = new HashMap<>();
         response.put("timestamp", LocalDateTime.now());
         response.put("status", HttpStatus.BAD_GATEWAY.value());
-        response.put("error", "AI Service Unavailable");
-        response.put("message", "The AI service is temporarily unavailable. Please try again shortly.");
+        response.put("error", "AI Service Unreachable");
+        response.put("message", "Could not connect to the AI provider API. "
+                + "Check your network connection and firewall settings."
+                + (ex.getMessage() != null ? " Details: " + ex.getMessage() : ""));
         response.put("path", request.getDescription(false).replace("uri=", ""));
-        
+
         return new ResponseEntity<>(response, HttpStatus.BAD_GATEWAY);
+    }
+
+    /**
+     * Map an OpenAI HTTP status + response body to a clear, actionable
+     * user-facing message. Logs the exact error for debugging.
+     */
+    private static String mapOpenAiHttpError(int status, String body) {
+        String openaiMsg = extractOpenAiErrorMessage(body);
+        String suffix = (openaiMsg != null && !openaiMsg.isBlank()) ? " — " + openaiMsg : "";
+        return switch (status) {
+            case 401 -> "Invalid AI API Key (401 Unauthorized). "
+                    + "Your key may be missing, expired, or incorrectly formatted. "
+                    + "Verify your key at https://aistudio.google.com/apikey" + suffix;
+            case 403 -> "AI API access denied (403 Forbidden). "
+                    + "Your key may not have permission. "
+                    + "Check permissions at https://aistudio.google.com/apikey" + suffix;
+            case 429 -> "AI API rate limit exceeded (429). "
+                    + "Wait a moment and try again, or check your quota "
+                    + "at https://aistudio.google.com" + suffix;
+            case 404 -> "AI model not found (404). "
+                    + "Verify the embedding model name in application.properties" + suffix;
+            default -> "AI provider error (HTTP " + status + ")" + suffix;
+        };
+    }
+
+    /** Extract the error message from an OpenAI JSON error body. */
+    private static String extractOpenAiErrorMessage(String body) {
+        if (body == null || body.isBlank()) return null;
+        int idx = body.indexOf("\"message\":\"");
+        if (idx >= 0) {
+            int start = idx + 12;
+            int end = body.indexOf('\"', start);
+            if (end > start) return body.substring(start, end);
+        }
+        return body.length() > 200 ? body.substring(0, 200) + "..." : body;
     }
 
     /**
@@ -178,12 +252,41 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         response.put("timestamp", LocalDateTime.now());
         response.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
         response.put("error", "Internal Server Error");
-        response.put("message", "An unexpected error occurred. Please contact support if the issue persists.");
+        String detail = buildFullErrorDetail(ex);
+        response.put("message", detail);
+        response.put("response", detail);
+        response.put("content", detail);
         response.put("path", request.getDescription(false).replace("uri=", ""));
         
-        // Log the full exception for debugging (in production, use proper logging framework)
-        ex.printStackTrace();
+        log.error("Unhandled exception: {}", ex.getMessage(), ex);
         
         return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    private static void addExactErrorFields(
+            Map<String, Object> response, Exception ex, HttpStatus status) {
+        if (status == HttpStatus.INTERNAL_SERVER_ERROR) {
+            String detail = buildFullErrorDetail(ex);
+            response.put("response", detail);
+            response.put("content", detail);
+        }
+    }
+
+    /**
+     * Build a full error detail string including the cause chain so the
+     * frontend sees the exact root cause (e.g. a 401 from Google Gemini)
+     * rather than just the wrapper RuntimeException.
+     */
+    private static String buildFullErrorDetail(Exception ex) {
+        StringBuilder sb = new StringBuilder();
+        Throwable current = ex;
+        while (current != null) {
+            if (sb.length() > 0) sb.append(" Caused by: ");
+            sb.append(current.getClass().getName())
+              .append(": ")
+              .append(current.getMessage());
+            current = current.getCause();
+        }
+        return sb.toString();
     }
 }

@@ -64,6 +64,13 @@ public class ToolService {
     }
 
     /**
+     * Get all tools.
+     */
+    public List<Tool> getAllTools() {
+        return toolRepository.findAll();
+    }
+
+    /**
      * Get all tools owned by a user.
      */
     public List<Tool> getToolsByOwner(Long ownerId) {

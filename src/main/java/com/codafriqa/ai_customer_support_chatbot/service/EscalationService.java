@@ -33,18 +33,34 @@ public class EscalationService {
     /** Tickets in these states are considered closed and won't be re-opened. */
     private static final List<String> CLOSED_STATUSES = List.of("RESOLVED", "CLOSED");
 
-    /** Phrase-based escalation triggers (matched case-insensitively). */
+    /**
+     * Phrase-based escalation triggers (matched case-insensitively).
+     *
+     * <p>Only phrases that express a clear intent to <em>request</em> or
+     * <em>connect with</em> a live person are included.  Generic references
+     * to human agents (e.g. "human agent", "customer support agent",
+     * "support representative") are intentionally excluded so that
+     * informational questions like "What are the human agent support hours?"
+     * are answered from the knowledge base instead of triggering handoff.
+     */
     private static final List<String> ESCALATION_PHRASES = List.of(
+            // Explicit requests to talk / speak
             "talk to a human", "talk to human", "speak to a human", "speak to human",
-            "human agent", "human support", "human representative", "human assistant",
-            "real person", "actual person", "real human",
-            "customer service agent", "customer support agent", "support representative",
-            "talk to an agent", "talk to agent", "talk to a representative", "talk to representative",
+            "talk to an agent", "talk to agent", "speak to an agent", "speak to agent",
+            "talk to a representative", "talk to representative",
             "talk to someone", "speak to someone", "talk to a person",
+            "speak to a person",
+            // Connect / transfer requests
             "connect me to an agent", "connect me to a human", "connect me to a person",
             "transfer me to an agent", "transfer me to a human",
+            "connect me to support", "transfer me to support",
+            // Direct intent declarations
             "i want a human", "need a human", "i need a human",
-            "escalate", "escalation", "please escalate"
+            "i want to talk to", "i want to speak to", "i need to talk to",
+            "i need to speak to",
+            "escalate this ticket", "escalate my ticket",
+            "please escalate", "please escalate this", "i want to escalate",
+            "i need to escalate"
     );
 
     private final ChatModel chatModel;
@@ -130,7 +146,7 @@ public class EscalationService {
                     .getResult().getOutput().getText();
             return parseSummary(output);
         } catch (Exception e) {
-            log.warn("AI summary generation failed (is OPENAI_API_KEY set?); using fallback summary", e);
+            log.warn("AI summary generation failed (is GEMINI_API_KEY set?); using fallback summary", e);
             return new SummaryResult(
                     "• Customer requested human assistance during the support conversation.\n" +
                     "• The conversation was handed off to a support agent.",

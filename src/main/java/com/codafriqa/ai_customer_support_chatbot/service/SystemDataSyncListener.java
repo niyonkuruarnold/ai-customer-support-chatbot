@@ -58,6 +58,7 @@ public class SystemDataSyncListener {
                 || entity instanceof MaintenanceLog
                 || entity instanceof Reservation
                 || entity instanceof Review
-                || entity instanceof SupportTicket;
+                || entity instanceof SupportTicket
+                || entity instanceof User;
     }
 }

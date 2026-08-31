@@ -5,5 +5,6 @@ package com.codafriqa.ai_customer_support_chatbot.model;
  */
 public enum UserRole {
     CUSTOMER,
-    AGENT
+    AGENT,
+    ADMIN
 }

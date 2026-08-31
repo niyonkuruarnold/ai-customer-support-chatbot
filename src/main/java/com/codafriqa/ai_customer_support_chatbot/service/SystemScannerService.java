@@ -15,11 +15,13 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Automated system scanner that periodically scans knowledge documents
@@ -111,12 +113,9 @@ public class SystemScannerService {
                         metadata.put("scanned_at", LocalDateTime.now().toString());
                         metadata.put("documentId", doc.getId());
                         metadata.put("title", doc.getTitle());
-                        metadata.put("chunkIndex", chunk.getChunkIndex());
-
-                        vectorDocs.add(new Document(
-                                "kb-" + chunk.getId(),
-                                chunk.getContent(),
-                                metadata));
+                        metadata.put("chunkIndex", chunk.getChunkIndex());                        vectorDocs.add(new Document(
+                                UUID.nameUUIDFromBytes(("kb-" + chunk.getId()).getBytes(StandardCharsets.UTF_8)).toString(),
+                                chunk.getContent(), metadata));
                     }
 
                     List<Document> splitDocs = SPLITTER.split(vectorDocs);

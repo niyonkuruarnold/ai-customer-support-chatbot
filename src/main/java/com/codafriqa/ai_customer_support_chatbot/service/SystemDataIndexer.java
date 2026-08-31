@@ -9,52 +9,69 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Indexes core system entities (Tools, Maintenance Logs, Reservations,
- * Reviews, Support Tickets) into the pgvector vector store so the RAG
- * chat pipeline can retrieve them.
+ * Dual-layer system data indexer that keeps the pgvector vector store in sync
+ * with the live PostgreSQL database.
  *
- * <h3>Startup indexing</h3>
+ * <h3>Layer 1 — Startup indexing</h3>
  * An {@link ApplicationReadyEvent} listener fetches all system entities,
- * maps each into a descriptive text string, wraps them as Spring AI
- * {@link Document}s, and saves them into the vector store. This runs
- * once after the application context is fully initialized.
+ * maps each into a descriptive semantic text block, wraps them as Spring AI
+ * {@link Document}s, and saves them into the vector store. This runs once
+ * after the application context is fully initialized.
  *
- * <h3>Real-time sync</h3>
- * JPA entity listeners ({@link SystemDataSyncListener}) call
- * {@link #syncEntity(Object)} on {@code @PostPersist/@PostUpdate} and
- * {@link #removeEntity(Object)} on {@code @PostRemove} to keep the
- * vector store in sync whenever a database record is created, updated,
- * or deleted.
+ * <h3>Layer 2 — Hourly scheduled re-index</h3>
+ * A {@link Scheduled} cron job ({@code "0 0 * * * *"}) runs every hour to
+ * clear outdated system vectors (filtering metadata {@code source = 'system-db'})
+ * and batch-insert fresh snapshots of all core entities.
+ *
+ * <h3>Layer 3 — Real-time sync via JPA Entity Listeners</h3>
+ * {@link SystemDataSyncListener} calls {@link #syncEntity(Object)} on
+ * {@code @PostPersist/@PostUpdate} and {@link #removeEntity(Object)} on
+ * {@code @PostRemove} to keep the vector store in sync whenever a database
+ * record is created, updated, or deleted.
+ *
+ * <h3>Indexed entities</h3>
+ * <ul>
+ *   <li>{@link Tool} — borrowable tools with availability status</li>
+ *   <li>{@link MaintenanceLog} — service history and costs</li>
+ *   <li>{@link Reservation} — tool borrowing records</li>
+ *   <li>{@link Review} — user feedback and ratings</li>
+ *   <li>{@link SupportTicket} — customer support tickets</li>
+ *   <li>{@link User} — system user accounts and roles</li>
+ * </ul>
  *
  * <h3>Embedding safety</h3>
- * When {@code OPENAI_API_KEY} is missing or invalid, indexing is
- * skipped entirely (no embedding API available). The sync methods are
- * no-ops so CRUD operations proceed normally.
+ * When {@code GEMINI_API_KEY} is missing or invalid, indexing is skipped
+ * entirely (no embedding API available). The sync methods are no-ops so
+ * CRUD operations proceed normally.
  */
 @Service
 public class SystemDataIndexer {
 
     private static final Logger log = LoggerFactory.getLogger(SystemDataIndexer.class);
 
-    /**
-     * Metadata key stored on every vector document so that similarity
-     * search results can be mapped back to the source entity.
-     */
+    /** Metadata key stored on every vector document for entity mapping. */
     public static final String META_ENTITY_TYPE = "entityType";
     public static final String META_ENTITY_ID = "entityId";
 
     /**
-     * Prefix for all vector store IDs managed by this indexer, so we
-     * can distinguish them from knowledge-base chunks ({@code "kb-*"}).
+     * Metadata key that identifies all vector documents managed by this
+     * indexer as originating from the system database. Used during hourly
+     * re-index to clear outdated vectors before batch-inserting fresh data.
      */
+    public static final String META_SOURCE = "source";
+    public static final String SOURCE_SYSTEM_DB = "system-db";
+
+    /** Prefix for all vector store IDs managed by this indexer. */
     private static final String VEC_ID_PREFIX = "sys-";
 
     private final ToolRepository toolRepository;
@@ -62,6 +79,7 @@ public class SystemDataIndexer {
     private final ReservationRepository reservationRepository;
     private final ReviewRepository reviewRepository;
     private final SupportTicketRepository supportTicketRepository;
+    private final UserRepository userRepository;
     private final VectorStore vectorStore;
     private final boolean indexingEnabled;
 
@@ -76,16 +94,18 @@ public class SystemDataIndexer {
                              ReservationRepository reservationRepository,
                              ReviewRepository reviewRepository,
                              SupportTicketRepository supportTicketRepository,
+                             UserRepository userRepository,
                              VectorStore vectorStore,
-                             @Value("${spring.ai.openai.api-key:}") String openaiApiKey) {
+                             @Value("${spring.ai.google.genai.api-key:}") String geminiApiKey) {
         this.toolRepository = toolRepository;
         this.maintenanceLogRepository = maintenanceLogRepository;
         this.reservationRepository = reservationRepository;
         this.reviewRepository = reviewRepository;
         this.supportTicketRepository = supportTicketRepository;
+        this.userRepository = userRepository;
         this.vectorStore = vectorStore;
-        this.indexingEnabled = openaiApiKey != null && !openaiApiKey.isBlank()
-                && !openaiApiKey.contains("your-") && !openaiApiKey.contains("sk-placeholder");
+        this.indexingEnabled = geminiApiKey != null && !geminiApiKey.isBlank()
+                && !geminiApiKey.contains("your-") && !geminiApiKey.contains("placeholder");
     }
 
     // ------------------------------------------------------------------
@@ -100,7 +120,7 @@ public class SystemDataIndexer {
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
         if (!indexingEnabled) {
-            log.info("OPENAI_API_KEY is not configured — skipping system data indexing");
+            log.info("GEMINI_API_KEY is not configured — skipping system data indexing");
             startupIndexingComplete = true;
             return;
         }
@@ -117,6 +137,39 @@ public class SystemDataIndexer {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Hourly scheduled re-index
+    // ------------------------------------------------------------------
+
+    /**
+     * Hourly cron job that clears outdated system vectors (metadata
+     * {@code source = 'system-db'}) and batch-inserts a fresh snapshot
+     * of all core entities. This ensures the vector store stays current
+     * even if JPA entity listeners missed an update (e.g., during bulk
+     * imports or direct SQL modifications).
+     */
+    @Scheduled(cron = "0 0 * * * *")
+    public void scheduledReindex() {
+        if (!indexingEnabled) return;
+
+        long start = System.currentTimeMillis();
+        try {
+            // Clear all existing system-db vectors
+            clearSystemVectors();
+
+            // Batch-insert fresh entity snapshots
+            long count = indexAllEntities();
+            long elapsed = System.currentTimeMillis() - start;
+            log.info("Hourly system re-index complete: {} entities indexed in {}ms", count, elapsed);
+        } catch (Exception e) {
+            log.error("Hourly system re-index failed: {}", e.getMessage(), e);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Full entity indexing
+    // ------------------------------------------------------------------
+
     /**
      * Fetch all system entities, map them to documents, and save to the
      * vector store. Returns the total number of indexed entities.
@@ -130,8 +183,8 @@ public class SystemDataIndexer {
         }
 
         // Maintenance Logs
-        for (MaintenanceLog log : maintenanceLogRepository.findAll()) {
-            docs.add(toDocument(log));
+        for (MaintenanceLog ml : maintenanceLogRepository.findAll()) {
+            docs.add(toDocument(ml));
         }
 
         // Reservations
@@ -149,10 +202,24 @@ public class SystemDataIndexer {
             docs.add(toDocument(ticket));
         }
 
+        // Users (team members, agents, admins)
+        for (User user : userRepository.findAll()) {
+            docs.add(toDocument(user));
+        }
+
         if (!docs.isEmpty()) {
             // Delete existing system-indexed documents first to avoid duplicates
             deleteAllSystemDocuments();
-            vectorStore.add(docs);
+            try {
+                vectorStore.add(docs);
+            } catch (org.springframework.web.client.RestClientResponseException e) {
+                System.err.println("Gemini API HTTP Error Code: " + e.getRawStatusCode());
+                System.err.println("Gemini API Response Body: " + e.getResponseBodyAsString());
+                throw new RuntimeException("Gemini API Error: " + e.getResponseBodyAsString());
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new RuntimeException("Vector store error: " + e.getMessage());
+            }
         }
 
         return docs.size();
@@ -224,6 +291,8 @@ public class SystemDataIndexer {
             return toDocument(review);
         } else if (entity instanceof SupportTicket ticket) {
             return toDocument(ticket);
+        } else if (entity instanceof User user) {
+            return toDocument(user);
         }
         return null;
     }
@@ -235,7 +304,7 @@ public class SystemDataIndexer {
                 + (tool.getDescription() != null
                     ? " | Description: " + tool.getDescription()
                     : "");
-        return buildDocument(VEC_ID_PREFIX + "tool-" + tool.getId(), text,
+        return buildDocument(vectorId(VEC_ID_PREFIX + "tool-" + tool.getId()), text,
                 "Tool", tool.getId());
     }
 
@@ -247,7 +316,7 @@ public class SystemDataIndexer {
                 + (ml.getNextServiceDue() != null
                     ? " | Next Service Due: " + ml.getNextServiceDue()
                     : "");
-        return buildDocument(VEC_ID_PREFIX + "maintenance-" + ml.getId(), text,
+        return buildDocument(vectorId(VEC_ID_PREFIX + "maintenance-" + ml.getId()), text,
                 "MaintenanceLog", ml.getId());
     }
 
@@ -257,7 +326,7 @@ public class SystemDataIndexer {
                 + " | Period: " + r.getStartDate() + " to " + r.getEndDate()
                 + " | Status: " + r.getStatus()
                 + (r.getNotes() != null ? " | Notes: " + r.getNotes() : "");
-        return buildDocument(VEC_ID_PREFIX + "reservation-" + r.getId(), text,
+        return buildDocument(vectorId(VEC_ID_PREFIX + "reservation-" + r.getId()), text,
                 "Reservation", r.getId());
     }
 
@@ -267,7 +336,7 @@ public class SystemDataIndexer {
                 + (review.getComment() != null
                     ? " | Comment: " + review.getComment()
                     : "");
-        return buildDocument(VEC_ID_PREFIX + "review-" + review.getId(), text,
+        return buildDocument(vectorId(VEC_ID_PREFIX + "review-" + review.getId()), text,
                 "Review", review.getId());
     }
 
@@ -279,8 +348,16 @@ public class SystemDataIndexer {
                 + (ticket.getAssignedAgent() != null
                     ? " | Assigned Agent: " + ticket.getAssignedAgent()
                     : "");
-        return buildDocument(VEC_ID_PREFIX + "ticket-" + ticket.getId(), text,
+        return buildDocument(vectorId(VEC_ID_PREFIX + "ticket-" + ticket.getId()), text,
                 "SupportTicket", ticket.getId());
+    }
+
+    private Document toDocument(User user) {
+        String text = "Team Member: " + user.getEmail()
+                + " | Role: " + user.getRole()
+                + " | Joined: " + user.getCreatedAt();
+        return buildDocument(vectorId(VEC_ID_PREFIX + "user-" + user.getId()), text,
+                "User", user.getId());
     }
 
     // ------------------------------------------------------------------
@@ -291,7 +368,16 @@ public class SystemDataIndexer {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put(META_ENTITY_TYPE, entityType);
         metadata.put(META_ENTITY_ID, entityId);
+        metadata.put(META_SOURCE, SOURCE_SYSTEM_DB);
         return new Document(id, text, metadata);
+    }
+
+    /**
+     * Generate a deterministic UUID from a key string so the same entity
+     * always maps to the same vector-store ID (needed for delete/sync).
+     */
+    private static String vectorId(String key) {
+        return UUID.nameUUIDFromBytes(key.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
     }
 
     /**
@@ -299,38 +385,65 @@ public class SystemDataIndexer {
      */
     private String toVectorId(Object entity) {
         if (entity instanceof Tool t) {
-            return VEC_ID_PREFIX + "tool-" + t.getId();
+            return vectorId(VEC_ID_PREFIX + "tool-" + t.getId());
         } else if (entity instanceof MaintenanceLog ml) {
-            return VEC_ID_PREFIX + "maintenance-" + ml.getId();
+            return vectorId(VEC_ID_PREFIX + "maintenance-" + ml.getId());
         } else if (entity instanceof Reservation r) {
-            return VEC_ID_PREFIX + "reservation-" + r.getId();
+            return vectorId(VEC_ID_PREFIX + "reservation-" + r.getId());
         } else if (entity instanceof Review rev) {
-            return VEC_ID_PREFIX + "review-" + rev.getId();
+            return vectorId(VEC_ID_PREFIX + "review-" + rev.getId());
         } else if (entity instanceof SupportTicket t) {
-            return VEC_ID_PREFIX + "ticket-" + t.getId();
+            return vectorId(VEC_ID_PREFIX + "ticket-" + t.getId());
+        } else if (entity instanceof User u) {
+            return vectorId(VEC_ID_PREFIX + "user-" + u.getId());
         }
         return null;
     }
 
     /**
      * Remove all system-indexed documents from the vector store before a
-     * full re-index. Queries for documents with the {@code sys-} prefix
-     * in their ID by searching for a generic term and filtering, or
-     * simply does a bulk delete of all known system IDs.
+     * full re-index. Builds the list of known system IDs by querying all
+     * repositories.
      */
     private void deleteAllSystemDocuments() {
         try {
             List<String> existingIds = new ArrayList<>();
-            for (Tool t : toolRepository.findAll()) existingIds.add(VEC_ID_PREFIX + "tool-" + t.getId());
-            for (MaintenanceLog ml : maintenanceLogRepository.findAll()) existingIds.add(VEC_ID_PREFIX + "maintenance-" + ml.getId());
-            for (Reservation r : reservationRepository.findAll()) existingIds.add(VEC_ID_PREFIX + "reservation-" + r.getId());
-            for (Review rev : reviewRepository.findAll()) existingIds.add(VEC_ID_PREFIX + "review-" + rev.getId());
-            for (SupportTicket t : supportTicketRepository.findAll()) existingIds.add(VEC_ID_PREFIX + "ticket-" + t.getId());
+            for (Tool t : toolRepository.findAll()) existingIds.add(vectorId(VEC_ID_PREFIX + "tool-" + t.getId()));
+            for (MaintenanceLog ml : maintenanceLogRepository.findAll()) existingIds.add(vectorId(VEC_ID_PREFIX + "maintenance-" + ml.getId()));
+            for (Reservation r : reservationRepository.findAll()) existingIds.add(vectorId(VEC_ID_PREFIX + "reservation-" + r.getId()));
+            for (Review rev : reviewRepository.findAll()) existingIds.add(vectorId(VEC_ID_PREFIX + "review-" + rev.getId()));
+            for (SupportTicket t : supportTicketRepository.findAll()) existingIds.add(vectorId(VEC_ID_PREFIX + "ticket-" + t.getId()));
+            for (User u : userRepository.findAll()) existingIds.add(vectorId(VEC_ID_PREFIX + "user-" + u.getId()));
             if (!existingIds.isEmpty()) {
                 vectorStore.delete(existingIds);
             }
         } catch (Exception e) {
             log.warn("Could not pre-clean system documents: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Clear all vector documents that originated from the system database
+     * (metadata {@code source = 'system-db'}). This is used by the hourly
+     * scheduled re-index to ensure stale vectors are removed before fresh
+     * data is batch-inserted.
+     */
+    private void clearSystemVectors() {
+        try {
+            // Build the list of all known system vector IDs
+            List<String> systemIds = new ArrayList<>();
+            for (Tool t : toolRepository.findAll()) systemIds.add(vectorId(VEC_ID_PREFIX + "tool-" + t.getId()));
+            for (MaintenanceLog ml : maintenanceLogRepository.findAll()) systemIds.add(vectorId(VEC_ID_PREFIX + "maintenance-" + ml.getId()));
+            for (Reservation r : reservationRepository.findAll()) systemIds.add(vectorId(VEC_ID_PREFIX + "reservation-" + r.getId()));
+            for (Review rev : reviewRepository.findAll()) systemIds.add(vectorId(VEC_ID_PREFIX + "review-" + rev.getId()));
+            for (SupportTicket t : supportTicketRepository.findAll()) systemIds.add(vectorId(VEC_ID_PREFIX + "ticket-" + t.getId()));
+            for (User u : userRepository.findAll()) systemIds.add(vectorId(VEC_ID_PREFIX + "user-" + u.getId()));
+            if (!systemIds.isEmpty()) {
+                vectorStore.delete(systemIds);
+                log.debug("Cleared {} system vectors before re-index", systemIds.size());
+            }
+        } catch (Exception e) {
+            log.warn("Could not clear system vectors: {}", e.getMessage());
         }
     }
 }

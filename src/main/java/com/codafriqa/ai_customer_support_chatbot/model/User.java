@@ -1,13 +1,17 @@
 package com.codafriqa.ai_customer_support_chatbot.model;
 
+import com.codafriqa.ai_customer_support_chatbot.service.SystemDataSyncListener;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 /**
- * User entity representing users in the system
+ * User entity representing users in the system.
+ * Indexed into the vector store so the RAG chat pipeline can reference
+ * team member information (roles, join dates) when answering customer queries.
  */
 @Entity
 @Table(name = "users")
+@EntityListeners(SystemDataSyncListener.class)
 public class User {
 
     @Id

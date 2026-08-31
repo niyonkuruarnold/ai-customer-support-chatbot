@@ -71,6 +71,11 @@ public class UserService {
                 .map(this::mapToResponseDto);
     }
 
+    public Optional<UserResponseDto> findByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(this::mapToResponseDto);
+    }
+
    private UserResponseDto mapToResponseDto(User user) {
     return new UserResponseDto(
         user.getId(), 

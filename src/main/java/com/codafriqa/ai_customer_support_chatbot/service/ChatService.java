@@ -34,28 +34,36 @@ public class ChatService {
     private static final String AGENT_ACTIVE_ACK =
             "Your message has been sent to the agent — they'll reply right here shortly.";
 
-    /** Base system instruction; the retrieved knowledge base context is appended when available. */
-    private static final String BASE_SYSTEM_INSTRUCTION = """
-            You are the CODAFRIQA AI Concierge. Answer questions strictly using the provided system database context and retrieved vector knowledge. If information is not in the system, explicitly state that you don't have that system record and offer to create an escalated ticket.
+        /** Base system instruction for the CODAFRIQA AI Assistant. */
+        private static final String BASE_SYSTEM_INSTRUCTION = """
+            You are the official CODAFRIQA Support Assistant. Answer the user's inquiry accurately and professionally using the provided knowledge base context as your primary source of truth.
 
-            Always maintain a professional, empathetic tone.
-            When responding, reference the source of the information (e.g., tool name, maintenance log, reservation).
-            Do not make up information or make promises regarding pricing or policies unless explicitly stated in your context.
-            """;
-
-    private static final String KNOWLEDGE_SECTION = """
-
-            Relevant knowledge base context (use it to answer accurately when it applies; do not invent facts beyond it):
-
+            Instructions:
+            - Prioritize information found in the Context.
+            - If the Context answers the question, answer directly and concisely.
+            - If the Context does NOT contain the answer, answer politely based on general assistance standards and explicitly mention: "Note: This is based on general guidance as I couldn't locate specific details in our local documentation."
+            - Do NOT invent or assume any details outside the Context.
+            - Only suggest connecting to a human agent when the customer explicitly requests live support (e.g., "I want to talk to a human", "Connect me to an agent").
             """;
 
     /**
-     * Mock response returned when OPENAI_API_KEY is not configured. Allows
+     * Resolves the {@code {context}} placeholder in {@link #BASE_SYSTEM_INSTRUCTION}
+     * and returns the fully-rendered system prompt string.
+     *
+     * @param contextText the retrieved vector-store context, or {@code null}
+     */
+    private String buildSystemPrompt(String contextText) {
+        String safeContext = contextText != null ? contextText : "";
+                return BASE_SYSTEM_INSTRUCTION + "\n\nContext:\n" + safeContext;
+    }
+
+    /**
+     * Mock response returned when GEMINI_API_KEY is not configured. Allows
      * the full chat pipeline to be exercised in local development without
      * a paid API quota.
      */
     private static final String MOCK_RESPONSE_PREFIX =
-            "[Local dev — OPENAI_API_KEY not configured] ";
+            "[Local dev — GEMINI_API_KEY not configured] ";
 
     private final ChatClient chatClient;
     private final ChatSessionRepository sessionRepository;
@@ -63,7 +71,7 @@ public class ChatService {
     private final EscalationService escalationService;
     private final RagService ragService;
     private final UserService userService;
-    private final String openaiApiKey;
+    private final String geminiApiKey;
 
     public ChatService(ChatClient.Builder chatClientBuilder,
                        ChatSessionRepository sessionRepository,
@@ -71,22 +79,22 @@ public class ChatService {
                        EscalationService escalationService,
                        RagService ragService,
                        UserService userService,
-                       @Value("${spring.ai.openai.api-key:}") String openaiApiKey) {
+                       @Value("${spring.ai.google.genai.api-key:}") String geminiApiKey) {
         this.chatClient = chatClientBuilder.build();
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.escalationService = escalationService;
         this.ragService = ragService;
         this.userService = userService;
-        this.openaiApiKey = openaiApiKey;
+        this.geminiApiKey = geminiApiKey;
     }
 
     /**
-     * Returns true when the OpenAI API key is missing or is a placeholder.
+     * Returns true when the Gemini API key is missing or is a placeholder.
      */
     private boolean isApiKeyMissing() {
-        return openaiApiKey == null || openaiApiKey.isBlank()
-                || openaiApiKey.contains("your-") || openaiApiKey.contains("sk-placeholder");
+        return geminiApiKey == null || geminiApiKey.isBlank()
+                || geminiApiKey.contains("your-") || geminiApiKey.contains("placeholder");
     }
 
     /**
@@ -106,19 +114,57 @@ public class ChatService {
         ChatSession session = resolveSession(sessionId);
         messageRepository.save(new ChatMessage(session.getId(), "USER", userMessage));
 
-        boolean escalationTrigger = escalationService.isEscalationRequest(userMessage);
+        // ── RAG-first intent routing ──────────────────────────────────────
+        // Always run the vector search FIRST. If the knowledge base contains
+        // relevant information answering the question, reply directly using
+        // the RAG context — even if the user also mentioned escalation
+        // phrases.  Only escalate when the user explicitly requests a human
+        // AND the vector store has no relevant context to answer the query.
+
+        boolean explicitEscalationRequest = escalationService.isEscalationRequest(userMessage);
         GenerationResult generation;
+
         if ("ESCALATED".equals(session.getStatus())) {
             // Human agent active — no AI generation
             generation = new GenerationResult(AGENT_ACTIVE_ACK, false, List.of(), List.of());
-        } else if (escalationTrigger) {
-            generation = new GenerationResult(HANDOFF_ACK, false, List.of(), List.of());
         } else {
-            generation = generateResponse(userMessage);
+            // Run RAG retrieval for ALL incoming queries
+            RagService.RagContext rag = ragService.retrieveContext(userMessage);
+            boolean ragHasContext = !rag.contextText().isBlank();
+
+            if (!ragHasContext) {
+                log.warn("No knowledge base context retrieved for query: {} — "
+                        + "the bot will answer without RAG grounding. "
+                        + "Check that documents are ingested and the vector_store table has data.",
+                        userMessage.length() > 80 ? userMessage.substring(0, 80) + "..." : userMessage);
+            }
+
+            if (explicitEscalationRequest) {
+                // User explicitly wants a human — always acknowledge and
+                // escalate, even when the knowledge base has relevant context.
+                // The AI model may mention escalation in a RAG response, but
+                // without the HANDOFF_ACK + ticket creation the customer just
+                // gets a confusing reply with no actual handoff.
+                generation = new GenerationResult(HANDOFF_ACK, false, List.of(), List.of());
+            } else if (ragHasContext) {
+                // Knowledge base has relevant info and no escalation request
+                // → answer directly from RAG context.
+                generation = generateResponseWithContext(userMessage, rag);
+            } else {
+                // No RAG context and no escalation request — let the AI
+                // answer from its base instruction. The system prompt tells
+                // it to say "I couldn't find that" and offer escalation
+                // only when the customer explicitly asks.
+                generation = generateResponse(userMessage, rag);
+            }
         }
+
         messageRepository.save(new ChatMessage(session.getId(), "AI", generation.text()));
 
-        if (escalationTrigger) {
+        // Escalate whenever the customer explicitly asks for a human agent.
+        // This must fire regardless of RAG context so that a support ticket
+        // is always created and the session moves to ESCALATED status.
+        if (explicitEscalationRequest) {
             List<ChatMessage> transcript = messageRepository.findBySessionIdOrderByTimestampAsc(session.getId());
             escalationService.escalate(session, userMessage, transcript);
         }
@@ -141,6 +187,18 @@ public class ChatService {
         return new SessionInfoDto(session.getId(), session.getStatus(), messages);
     }
 
+    /**
+     * Close/end a chat session by marking it as CLOSED.
+     * Called when the customer starts a new conversation so the previous
+     * session is properly archived.
+     */
+    public void closeSession(Long sessionId) {
+        ChatSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chat session not found: " + sessionId));
+        session.setStatus("CLOSED");
+        sessionRepository.save(session);
+    }
+
     private ChatSession resolveSession(Long sessionId) {
         // The chat has no registration, so every session is backed by the
         // anonymous customer account (resolved by email, created if missing)
@@ -154,65 +212,105 @@ public class ChatService {
     }
 
     /**
-     * AI response generation with RAG: the top-K relevant knowledge base
-     * chunks are retrieved for the user's message (RagService.retrieveContext)
-     * and appended to the system prompt. Falls back to a plain (context-free)
-     * prompt when retrieval is unavailable, and to a friendly fallback message
-     * when the model itself cannot be reached (e.g. missing OPENAI_API_KEY).
+     * Generate an AI response using an already-retrieved RAG context.
      *
-     * <p>When the OpenAI API key is not configured the method short-circuits
-     * with a mock response so the full chat pipeline can be tested locally
-     * without a paid API quota.
+     * <p>Used by the RAG-first routing in {@link #sendMessage} when the
+     * vector store returned relevant chunks.  This avoids a redundant
+     * retrieval call and ensures the answer is grounded in the knowledge
+     * base context.
      */
-    private GenerationResult generateResponse(String userMessage) {
-        // Retrieval never throws: RagService.retrieveContext returns a mock
-        // or empty context when the vector store is unavailable, has nothing
-        // relevant, or the API key is missing.
-        RagService.RagContext rag = ragService.retrieveContext(userMessage);
-        boolean ragUsed = !rag.contextText().isBlank();
-        String systemInstruction = ragUsed
-                ? BASE_SYSTEM_INSTRUCTION + KNOWLEDGE_SECTION + rag.contextText()
-                : BASE_SYSTEM_INSTRUCTION;
+    private GenerationResult generateResponseWithContext(String userMessage, RagService.RagContext rag) {
+        String systemInstruction = buildSystemPrompt(rag.contextText());
 
-        // When the API key is missing, skip the OpenAI call entirely and
-        // return a structured mock response so the pipeline works end-to-end.
         if (isApiKeyMissing()) {
-            log.info("OPENAI_API_KEY is not configured — returning mock chat response for local development");
+            log.info("GEMINI_API_KEY is not configured — returning mock chat response for local development");
             String mockAnswer = MOCK_RESPONSE_PREFIX
                     + "Thank you for your message! I'm your AI support assistant for Code of Africa. "
                     + "In a production environment I would answer your question using our knowledge base. "
-                    + "To enable live AI responses, set the OPENAI_API_KEY environment variable. "
+                    + "To enable live AI responses, set the GEMINI_API_KEY environment variable. "
                     + "Is there anything else I can help with?";
             List<ChatResponseDto.ContextReference> references = rag.references().stream()
                     .map(r -> new ChatResponseDto.ContextReference(
                             r.documentId(), r.title(), r.sourceType()))
                     .toList();
             List<SourceCitationDto> citations = rag.toCitations();
-            return new GenerationResult(mockAnswer, ragUsed, references, citations);
+            return new GenerationResult(mockAnswer, true, references, citations);
         }
 
-        try {
-            String answer = chatClient.prompt()
+                try {
+                        log.debug("Calling Spring AI ChatModel through ChatClient for RAG response");
+                        String answer = chatClient.prompt()
                     .system(systemInstruction)
                     .user(userMessage)
                     .call()
                     .content();
+                        if (answer == null || answer.isBlank()) {
+                                throw new IllegalStateException("Spring AI returned an empty response");
+                        }
             List<ChatResponseDto.ContextReference> references = rag.references().stream()
                     .map(r -> new ChatResponseDto.ContextReference(
                             r.documentId(), r.title(), r.sourceType()))
                     .toList();
             List<SourceCitationDto> citations = rag.toCitations();
-            return new GenerationResult(answer, ragUsed, references, citations);
+            return new GenerationResult(answer, true, references, citations);
         } catch (Exception e) {
-            // Log the exact failure (class + message + full stack trace via the
-            // throwable argument) so the root cause is visible in the app log,
-            // e.g. a 401 from a missing or invalid OPENAI_API_KEY.
-            log.warn("AI response generation failed ({}: {}); returning fallback message",
+            log.error("AI response generation failed ({}: {})",
                     e.getClass().getSimpleName(), e.getMessage(), e);
-            return new GenerationResult(
-                    "I'm sorry, I'm having trouble processing your request right now. " +
-                    "Please try again shortly, or ask to speak with a human support agent.",
-                    false, List.of(), List.of());
+            throw e;
+        }
+    }
+
+    /**
+     * AI response generation without RAG context: the caller already ran
+     * vector retrieval and found nothing relevant, so this method builds
+     * a context-free system prompt and lets the LLM answer from its base
+     * knowledge. Falls back to a friendly message when the model is
+     * unreachable (e.g. missing GEMINI_API_KEY).
+     *
+     * <p>When the Gemini API key is not configured the method short-circuits
+     * with a mock response so the full chat pipeline can be tested locally
+     * without a paid API quota.
+     */
+    private GenerationResult generateResponse(String userMessage, RagService.RagContext rag) {
+        String systemInstruction = buildSystemPrompt(rag.contextText());
+
+        // When the API key is missing, skip the AI call entirely and
+        // return a structured mock response so the pipeline works end-to-end.
+        if (isApiKeyMissing()) {
+            log.info("GEMINI_API_KEY is not configured — returning mock chat response for local development");
+            String mockAnswer = MOCK_RESPONSE_PREFIX
+                    + "Thank you for your message! I'm your AI support assistant for Code of Africa. "
+                    + "In a production environment I would answer your question using our knowledge base. "
+                    + "To enable live AI responses, set the GEMINI_API_KEY environment variable. "
+                    + "Is there anything else I can help with?";
+            List<ChatResponseDto.ContextReference> references = rag.references().stream()
+                    .map(r -> new ChatResponseDto.ContextReference(
+                            r.documentId(), r.title(), r.sourceType()))
+                    .toList();
+            List<SourceCitationDto> citations = rag.toCitations();
+            return new GenerationResult(mockAnswer, false, references, citations);
+        }
+
+                try {
+                        log.debug("Calling Spring AI ChatModel through ChatClient for response");
+                        String answer = chatClient.prompt()
+                    .system(systemInstruction)
+                    .user(userMessage)
+                    .call()
+                    .content();
+                        if (answer == null || answer.isBlank()) {
+                                throw new IllegalStateException("Spring AI returned an empty response");
+                        }
+            List<ChatResponseDto.ContextReference> references = rag.references().stream()
+                    .map(r -> new ChatResponseDto.ContextReference(
+                            r.documentId(), r.title(), r.sourceType()))
+                    .toList();
+            List<SourceCitationDto> citations = rag.toCitations();
+            return new GenerationResult(answer, false, references, citations);
+        } catch (Exception e) {
+            log.error("AI response generation failed ({}: {})",
+                    e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
         }
     }
 

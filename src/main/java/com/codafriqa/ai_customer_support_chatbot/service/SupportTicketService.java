@@ -10,6 +10,7 @@ import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -110,6 +111,7 @@ public class SupportTicketService {
     }
 
     /** Admin: permanently delete a ticket and its associated notes. */
+    @PreAuthorize("hasRole('ADMIN')")
     public void deleteTicket(Long id) {
         SupportTicket ticket = findTicket(id);
         ticketRepository.delete(ticket);

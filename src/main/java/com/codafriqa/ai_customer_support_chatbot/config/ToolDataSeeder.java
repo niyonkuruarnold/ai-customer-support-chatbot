@@ -10,33 +10,47 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Boot-time seeder for the System Indexer (Owner Dashboard).
  *
- * <ol>
- *   <li>Ensures a database {@link User} with role {@code ADMIN} exists so that
- *       in-memory Spring Security users (admin / admin123) have a real DB row
- *       and ID that the frontend can reference as {@code ownerId}.</li>
- *   <li>If the {@code tools} table is empty, inserts a set of sample tools
- *       with statuses {@link ToolStatus#AVAILABLE},
- *       {@link ToolStatus#BORROWED}, and {@link ToolStatus#IN_MAINTENANCE}
- *       so the metric cards on the System Indexer dashboard show non-zero
- *       values.</li>
- * </ol>
+ * <p>Runs {@link ApplicationRunner} with {@link Order#LOWEST_PRECEDENCE}
+ * so it executes <strong>after</strong> all other runners — by which time
+ * Hibernate {@code ddl-auto=update} has created or migrated every table.
  *
- * Idempotent: no-ops when tools already exist or the admin user is already
- * present. Seeding failures are logged and never prevent the app from starting.
+ * <p>If the {@code tools} table is empty, inserts 9 sample tools with
+ * realistic statuses so the metric cards on the System Indexer dashboard
+ * show non-zero values:
+ * <ul>
+ *   <li>4 {@link ToolStatus#AVAILABLE} tools</li>
+ *   <li>3 {@link ToolStatus#BORROWED} tools</li>
+ *   <li>2 {@link ToolStatus#IN_MAINTENANCE} tools</li>
+ * </ul>
+ *
+ * <p>Includes a retry loop (3 attempts, 2-second delay) to handle the
+ * case where Hibernate DDL hasn't finished when the runner fires.
+ *
+ * <p>Idempotent: no-ops when tools already exist. Seeding failures are
+ * logged at ERROR level and never prevent the app from starting.
  */
 @Component
+@Order(Ordered.LOWEST_PRECEDENCE)
 public class ToolDataSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ToolDataSeeder.class);
 
     /** Email that matches the in-memory admin in {@code SecurityConfig}. */
     private static final String ADMIN_EMAIL = "admin";
+
+    /** Maximum number of attempts to seed if the DB isn't ready yet. */
+    private static final int MAX_RETRIES = 3;
+
+    /** Milliseconds to wait between retry attempts. */
+    private static final long RETRY_DELAY_MS = 2000;
 
     private final UserRepository userRepository;
     private final ToolRepository toolRepository;
@@ -51,13 +65,35 @@ public class ToolDataSeeder implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        try {
-            Long adminId = ensureAdminUser();
-            seedSampleTools(adminId);
-        } catch (Exception e) {
-            // Seeding must never prevent the app from starting
-            log.warn("Tool seeding skipped: {}: {}",
-                    e.getClass().getSimpleName(), e.getMessage());
+        log.info("ToolDataSeeder: ApplicationRunner fired — checking if seeding is needed");
+
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                Long adminId = ensureAdminUser();
+                int seeded = seedSampleTools(adminId);
+                if (seeded > 0) {
+                    log.info("ToolDataSeeder: SUCCESS — seeded {} tools into the database (AVAILABLE={}, BORROWED={}, IN_MAINTENANCE={})",
+                            seeded,
+                            countByStatus(seeded, ToolStatus.AVAILABLE),
+                            countByStatus(seeded, ToolStatus.BORROWED),
+                            countByStatus(seeded, ToolStatus.IN_MAINTENANCE));
+                } else {
+                    log.info("ToolDataSeeder: tools table already has {} rows — skipping seed", toolRepository.count());
+                }
+                return; // Success — exit retry loop
+            } catch (Exception e) {
+                if (attempt < MAX_RETRIES) {
+                    log.warn("ToolDataSeeder: attempt {}/{} failed ({}: {}) — retrying in {}ms",
+                            attempt, MAX_RETRIES,
+                            e.getClass().getSimpleName(), e.getMessage(),
+                            RETRY_DELAY_MS);
+                    sleep(RETRY_DELAY_MS);
+                } else {
+                    log.error("ToolDataSeeder: FAILED after {} attempts — tools table will be empty on the dashboard. " +
+                                    "Last error: {}: {}",
+                            MAX_RETRIES, e.getClass().getSimpleName(), e.getMessage(), e);
+                }
+            }
         }
     }
 
@@ -75,7 +111,7 @@ public class ToolDataSeeder implements ApplicationRunner {
     private Long ensureAdminUser() {
         return userRepository.findByEmail(ADMIN_EMAIL)
                 .orElseGet(() -> {
-                    log.info("Creating database admin user (email={})", ADMIN_EMAIL);
+                    log.info("ToolDataSeeder: creating database admin user (email={})", ADMIN_EMAIL);
                     User admin = new User(
                             ADMIN_EMAIL,
                             passwordEncoder.encode("admin123"),
@@ -92,61 +128,94 @@ public class ToolDataSeeder implements ApplicationRunner {
      * Seed sample tools when the table is empty. Each tool is assigned to
      * the admin user so the System Indexer dashboard (which filters by
      * {@code ownerId}) can display them.
+     *
+     * @return the number of tools seeded (0 if the table was already populated)
      */
-    private void seedSampleTools(Long adminId) {
-        if (toolRepository.count() > 0) {
-            log.debug("Tools table already has {} rows — skipping seed",
-                    toolRepository.count());
-            return;
+    @Transactional
+    private int seedSampleTools(Long adminId) {
+        long existingCount = toolRepository.count();
+        if (existingCount > 0) {
+            return 0;
         }
 
-        log.info("Seeding sample tools for the System Indexer dashboard");
+        log.info("ToolDataSeeder: inserting 9 sample tools into the tools table");
 
         var seeds = new Seed[]{
-                // AVAILABLE tools
-                new Seed("Power Drill", "18V cordless drill with two batteries",
-                        "Power Tools", ToolStatus.AVAILABLE),
-                new Seed("Garden Hose", "50 ft expandable garden hose",
-                        "Garden", ToolStatus.AVAILABLE),
-                new Seed("Wrench Set", "12-piece metric wrench set",
-                        "Hand Tools", ToolStatus.AVAILABLE),
-                new Seed("Paint Roller Kit", "9-inch roller with extendable pole",
-                        "Painting", ToolStatus.AVAILABLE),
+                // ── AVAILABLE (4 tools) ──
+                new Seed("Multimeter Unit A",
+                        "Fluke 87V industrial multimeter for electrical diagnostics",
+                        "Electrical Testing", ToolStatus.AVAILABLE),
+                new Seed("Diagnostic Scanner B",
+                        "OBD-II automotive diagnostic scanner with live data",
+                        "Automotive", ToolStatus.AVAILABLE),
+                new Seed("Oscilloscope Pro",
+                        "Rigol DS1054Z 4-channel 50 MHz digital oscilloscope",
+                        "Electronics", ToolStatus.AVAILABLE),
+                new Seed("Thermal Camera C",
+                        "FLIR E8 thermal imaging camera for heat mapping",
+                        "Inspection", ToolStatus.AVAILABLE),
 
-                // BORROWED tools
-                new Seed("Ladder", "20 ft fiberglass extension ladder",
-                        "Ladders", ToolStatus.BORROWED),
-                new Seed("Pressure Washer", "2000 PSI electric pressure washer",
-                        "Cleaning", ToolStatus.BORROWED),
-                new Seed("Circular Saw", "7-¼ inch circular saw with blade",
-                        "Power Tools", ToolStatus.BORROWED),
+                // ── BORROWED (3 tools) ──
+                new Seed("Hydraulic Jack",
+                        "3-ton heavy-duty hydraulic floor jack",
+                        "Lifting Equipment", ToolStatus.BORROWED),
+                new Seed("Torque Wrench Set",
+                        "1/2-inch drive click-type torque wrench set (10-150 ft-lbs)",
+                        "Hand Tools", ToolStatus.BORROWED),
+                new Seed("Battery Tester",
+                        "Foxwell BT705 12V/24V battery load tester and charger",
+                        "Electrical Testing", ToolStatus.BORROWED),
 
-                // IN_MAINTENANCE tools
-                new Seed("Lawn Mower", "21-inch self-propelled gas mower",
-                        "Garden", ToolStatus.IN_MAINTENANCE),
-                new Seed("Chainsaw", "16-inch electric chainsaw — chain tensioning",
-                        "Power Tools", ToolStatus.IN_MAINTENANCE),
+                // ── IN_MAINTENANCE (2 tools) ──
+                new Seed("Soldering Station",
+                        "Hakko FX-888D digital soldering station — tip replacement",
+                        "Electronics", ToolStatus.IN_MAINTENANCE),
+                new Seed("Calibration Kit",
+                        "Fluke 5520A multi-product calibrator — annual calibration",
+                        "Calibration", ToolStatus.IN_MAINTENANCE),
         };
+
+        int availableCount = 0;
+        int borrowedCount = 0;
+        int maintenanceCount = 0;
 
         for (Seed s : seeds) {
             Tool tool = new Tool(s.name(), s.desc(), s.category(), adminId);
             tool.setStatus(s.status());
             toolRepository.save(tool);
+
+            switch (s.status()) {
+                case AVAILABLE -> availableCount++;
+                case BORROWED -> borrowedCount++;
+                case IN_MAINTENANCE -> maintenanceCount++;
+            }
         }
 
-        log.info("Seeded {} sample tools (AVAILABLE={}, BORROWED={}, IN_MAINTENANCE={})",
-                seeds.length,
-                count(seeds, ToolStatus.AVAILABLE),
-                count(seeds, ToolStatus.BORROWED),
-                count(seeds, ToolStatus.IN_MAINTENANCE));
+        log.info("ToolDataSeeder: tool seeding complete — {} tools inserted (AVAILABLE={}, BORROWED={}, IN_MAINTENANCE={})",
+                seeds.length, availableCount, borrowedCount, maintenanceCount);
+
+        return seeds.length;
     }
 
-    private static int count(Seed[] seeds, ToolStatus status) {
-        int n = 0;
-        for (Seed s : seeds) {
-            if (s.status() == status) n++;
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    private static int countByStatus(int total, ToolStatus status) {
+        // Count from the known seed data breakdown
+        return switch (status) {
+            case AVAILABLE -> 4;
+            case BORROWED -> 3;
+            case IN_MAINTENANCE -> 2;
+        };
+    }
+
+    private static void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
-        return n;
     }
 
     /** Local seed record used only during boot-time seeding. */

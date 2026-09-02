@@ -125,13 +125,14 @@ public class SystemDataIndexer {
             return;
         }
 
+        log.info("SystemDataIndexer: ApplicationReadyEvent fired — starting system data indexing");
         long start = System.currentTimeMillis();
         try {
             long count = indexAllEntities();
             long elapsed = System.currentTimeMillis() - start;
-            log.info("System data indexing complete: {} entities indexed in {}ms", count, elapsed);
+            log.info("SystemDataIndexer: SUCCESS — {} entities indexed into vector store in {}ms", count, elapsed);
         } catch (Exception e) {
-            log.error("System data indexing failed: {}", e.getMessage(), e);
+            log.error("SystemDataIndexer: FAILED — system data indexing failed: {}", e.getMessage(), e);
         } finally {
             startupIndexingComplete = true;
         }
@@ -175,6 +176,16 @@ public class SystemDataIndexer {
      * vector store. Returns the total number of indexed entities.
      */
     public long indexAllEntities() {
+        // Log entity counts before indexing so we can verify the seeder ran
+        long toolCount = toolRepository.count();
+        long maintenanceLogCount = maintenanceLogRepository.count();
+        long reservationCount = reservationRepository.count();
+        long reviewCount = reviewRepository.count();
+        long ticketCount = supportTicketRepository.count();
+        long userCount = userRepository.count();
+        log.info("SystemDataIndexer: entity counts — tools={}, maintenanceLogs={}, reservations={}, reviews={}, tickets={}, users={}",
+                toolCount, maintenanceLogCount, reservationCount, reviewCount, ticketCount, userCount);
+
         List<Document> docs = new ArrayList<>();
 
         // Tools

@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -18,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Boot-time seeder for the System Indexer (Owner Dashboard).
  *
- * <p>Runs {@link ApplicationRunner} with {@link Order#LOWEST_PRECEDENCE}
+ * <p>Runs {@link ApplicationRunner} with {@link Ordered#LOWEST_PRECEDENCE}
  * so it executes <strong>after</strong> all other runners — by which time
  * Hibernate {@code ddl-auto=update} has created or migrated every table.
  *

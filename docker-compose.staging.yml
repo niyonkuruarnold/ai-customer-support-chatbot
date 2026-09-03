@@ -1,0 +1,105 @@
+# Docker Compose Staging Configuration
+# Production-ready staging environment with PostgreSQL, Spring Boot, and Vue 3
+# 
+# Usage:
+#   docker compose -f docker-compose.staging.yml up --build
+#
+# Services:
+#   - postgres: PostgreSQL with pgvector extension
+#   - backend: Spring Boot API server
+#   - frontend: Vue 3 SPA served via Nginx
+
+version: '3.8'
+
+services:
+  # ─── PostgreSQL Database ─────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: chatbot_postgres_staging
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_customer_support_chatbot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_staging:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_customer_support_chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - chatbot_network
+
+  # ─── Spring Boot Backend ─────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: chatbot_backend_staging
+    ports:
+      - "8080:8080"
+    environment:
+      # Database configuration
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ai_customer_support_chatbot
+      
+      # Security configuration
+      SECURITY_USER: admin
+      SECURITY_PASSWORD: admin123
+      
+      # Gemini API key (set in .env or override here)
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      
+      # Mail configuration (optional)
+      MAIL_HOST: ${MAIL_HOST:-smtp.mailtrap.io}
+      MAIL_PORT: ${MAIL_PORT:-2525}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      
+      # Java options
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - chatbot_network
+
+  # ─── Vue 3 Frontend (Nginx) ──────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chatbot_frontend_staging
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - chatbot_network
+
+# ─── Networks ──────────────────────────────────────────────────────────
+networks:
+  chatbot_network:
+    driver: bridge
+
+# ─── Volumes ───────────────────────────────────────────────────────────
+volumes:
+  pgdata_staging:
+    driver: local

@@ -12,8 +12,8 @@ const apiClient = axios.create({
 /**
  * Submit CSAT feedback for a chat session.
  *
- * POST /v1/chat/feedback
- *   body: { sessionId, rating, comment? }
+ * POST /v1/chat/conversations/{id}/feedback
+ *   body: { rating, comment? }
  *   returns: { id, sessionId, rating, comment, createdAt }
  *
  * @param {number} sessionId
@@ -22,8 +22,7 @@ const apiClient = axios.create({
  * @returns {Promise<Object>}
  */
 export async function submitChatFeedback(sessionId, rating, comment = null) {
-  const { data } = await apiClient.post('/v1/chat/feedback', {
-    sessionId,
+  const { data } = await apiClient.post(`/v1/chat/conversations/${sessionId}/feedback`, {
     rating,
     comment: comment || null,
   })

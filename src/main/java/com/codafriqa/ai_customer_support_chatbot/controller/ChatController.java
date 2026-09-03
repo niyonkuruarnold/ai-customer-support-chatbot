@@ -204,6 +204,22 @@ public class ChatController {
     }
 
     /**
+     * Submit CSAT feedback via conversation-scoped endpoint.
+     * POST /api/v1/conversations/{id}/feedback
+     */
+    @Operation(
+            summary = "Submit conversation feedback",
+            description = "Submit a CSAT rating (1-5 stars) and optional comment for a conversation.")
+    @PostMapping("/conversations/{id}/feedback")
+    public ResponseEntity<ChatFeedback> submitConversationFeedback(
+            @PathVariable Long id,
+            @Valid @RequestBody ChatFeedbackDto request) {
+        ChatFeedbackDto sessionRequest = new ChatFeedbackDto(id, request.rating(), request.comment());
+        ChatFeedback feedback = chatFeedbackService.submitFeedback(sessionRequest);
+        return ResponseEntity.ok(feedback);
+    }
+
+    /**
      * Check if feedback has been submitted for a session.
      */
     @Operation(

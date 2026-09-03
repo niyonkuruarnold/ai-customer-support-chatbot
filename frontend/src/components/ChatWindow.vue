@@ -30,6 +30,53 @@ const canSend = computed(() => {
   )
 })
 
+// Three-state badge: 'ai' | 'waiting' | 'connected'
+const chatStatus = computed(() => {
+  if (!store.isEscalated) return 'ai'
+  if (store.hasAgentMessages) return 'connected'
+  return 'waiting'
+})
+
+const badgeLabel = computed(() => {
+  switch (chatStatus.value) {
+    case 'waiting': return 'Waiting for Agent'
+    case 'connected': return 'Connected to Agent'
+    default: return 'AI Assistant'
+  }
+})
+
+const badgeClass = computed(() => {
+  switch (chatStatus.value) {
+    case 'waiting': return 'bg-amber-100 text-amber-700'
+    case 'connected': return 'bg-emerald-100 text-emerald-700'
+    default: return 'bg-emerald-100 text-emerald-700'
+  }
+})
+
+const pulseClass = computed(() => {
+  switch (chatStatus.value) {
+    case 'waiting': return 'bg-amber-400'
+    case 'connected': return 'bg-emerald-400'
+    default: return 'bg-emerald-400'
+  }
+})
+
+const dotClass = computed(() => {
+  switch (chatStatus.value) {
+    case 'waiting': return 'bg-amber-500'
+    case 'connected': return 'bg-emerald-500'
+    default: return 'bg-emerald-500'
+  }
+})
+
+const subtitleText = computed(() => {
+  switch (chatStatus.value) {
+    case 'waiting': return 'Connecting you to an agent…'
+    case 'connected': return 'A human agent is with you'
+    default: return 'Online · replies instantly'
+  }
+})
+
 async function handleSubmit() {
   if (!canSend.value) return
   const sent = await store.sendMessage(input.value)
@@ -145,38 +192,26 @@ onBeforeUnmount(() => store.stopPolling())
           <!-- Status Badge -->
           <span
             class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
-            :class="
-              store.isEscalated
-                ? 'bg-amber-100 text-amber-700'
-                : 'bg-emerald-100 text-emerald-700'
-            "
+            :class="badgeClass"
           >
             <span class="relative flex size-1.5" aria-hidden="true">
               <span
                 class="absolute inline-flex size-full animate-ping rounded-full opacity-75"
-                :class="store.isEscalated ? 'bg-amber-400' : 'bg-emerald-400'"
+                :class="pulseClass"
               ></span>
               <span
                 class="relative inline-flex size-1.5 rounded-full"
-                :class="store.isEscalated ? 'bg-amber-500' : 'bg-emerald-500'"
+                :class="dotClass"
               ></span>
             </span>
-            {{
-              store.isEscalated
-                ? 'Connected to Agent'
-                : 'AI Assistant'
-            }}
+            {{ badgeLabel }}
           </span>
         </div>
         <p
           class="text-[11px]"
-          :class="store.isEscalated ? 'text-amber-700' : 'text-slate-500'"
+          :class="chatStatus === 'ai' ? 'text-slate-500' : 'text-amber-700'"
         >
-          {{
-            store.isEscalated
-              ? 'A human agent is with you'
-              : 'Online · replies instantly'
-          }}
+          {{ subtitleText }}
         </p>
       </div>
       <button

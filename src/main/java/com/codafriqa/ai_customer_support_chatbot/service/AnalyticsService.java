@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -166,7 +167,7 @@ public class AnalyticsService {
 
         // Group by day
         Map<LocalDate, List<ChatSession>> sessionsByDay = sessionsInRange.stream()
-            .collect(Collectors.groupingBy(s -> s.getCreatedAt().toLocalDate()));
+            .collect(Collectors.groupingBy((ChatSession s) -> s.getCreatedAt().toLocalDate()));
 
         List<DailyMetric> dailyMetrics = new ArrayList<>();
         for (Map.Entry<LocalDate, List<ChatSession>> entry : sessionsByDay.entrySet()) {

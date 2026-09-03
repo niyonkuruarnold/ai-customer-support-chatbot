@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ChatMessage from './ChatMessage.vue'
+import ChatFeedbackModal from './ChatFeedbackModal.vue'
 import TypingIndicator from './TypingIndicator.vue'
 import { MAX_MESSAGE_LENGTH, useChatStore } from '../stores/chat'
 
@@ -17,6 +18,8 @@ const store = useChatStore()
 const open = ref(false)
 const input = ref('')
 const feedRef = ref(null)
+const showFeedbackModal = ref(false)
+const feedbackSubmitted = ref(false)
 
 const canSend = computed(() => {
   const text = input.value.trim()
@@ -31,6 +34,25 @@ async function handleSubmit() {
   if (!canSend.value) return
   const sent = await store.sendMessage(input.value)
   if (sent) input.value = ''
+}
+
+function handleEndChat() {
+  if (store.sessionId && !feedbackSubmitted.value) {
+    showFeedbackModal.value = true
+  } else {
+    store.closeAndResetConversation()
+  }
+}
+
+function handleFeedbackSubmitted(data) {
+  feedbackSubmitted.value = true
+  showFeedbackModal.value = false
+  store.closeAndResetConversation()
+}
+
+function handleFeedbackClose() {
+  showFeedbackModal.value = false
+  store.closeAndResetConversation()
 }
 
 function handleRetry(id) {
@@ -48,7 +70,10 @@ watch(
   },
 )
 
-onMounted(() => store.startPolling())
+onMounted(() => {
+  store.loadHistory()
+  store.startPolling()
+})
 onBeforeUnmount(() => store.stopPolling())
 </script>
 
@@ -86,6 +111,14 @@ onBeforeUnmount(() => store.stopPolling())
     </span>
   </button>
 
+  <!-- Feedback Modal -->
+  <ChatFeedbackModal
+    :session-id="store.sessionId"
+    :visible="showFeedbackModal"
+    @submitted="handleFeedbackSubmitted"
+    @close="handleFeedbackClose"
+  />
+
   <!-- Expanded: chat panel -->
   <section
     v-else
@@ -105,26 +138,43 @@ onBeforeUnmount(() => store.stopPolling())
         🤖
       </div>
       <div class="min-w-0 flex-1">
-        <h2 class="truncate text-sm font-semibold text-slate-900">
-          AI Customer Support
-        </h2>
+        <div class="flex items-center gap-2">
+          <h2 class="truncate text-sm font-semibold text-slate-900">
+            AI Customer Support
+          </h2>
+          <!-- Status Badge -->
+          <span
+            class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+            :class="
+              store.isEscalated
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-emerald-100 text-emerald-700'
+            "
+          >
+            <span class="relative flex size-1.5" aria-hidden="true">
+              <span
+                class="absolute inline-flex size-full animate-ping rounded-full opacity-75"
+                :class="store.isEscalated ? 'bg-amber-400' : 'bg-emerald-400'"
+              ></span>
+              <span
+                class="relative inline-flex size-1.5 rounded-full"
+                :class="store.isEscalated ? 'bg-amber-500' : 'bg-emerald-500'"
+              ></span>
+            </span>
+            {{
+              store.isEscalated
+                ? 'Connected to Agent'
+                : 'AI Assistant'
+            }}
+          </span>
+        </div>
         <p
-          class="flex items-center gap-1.5 text-[11px]"
+          class="text-[11px]"
           :class="store.isEscalated ? 'text-amber-700' : 'text-slate-500'"
         >
-          <span class="relative flex size-1.5" aria-hidden="true">
-            <span
-              class="absolute inline-flex size-full animate-ping rounded-full opacity-75"
-              :class="store.isEscalated ? 'bg-amber-400' : 'bg-emerald-400'"
-            ></span>
-            <span
-              class="relative inline-flex size-1.5 rounded-full"
-              :class="store.isEscalated ? 'bg-amber-500' : 'bg-emerald-500'"
-            ></span>
-          </span>
           {{
             store.isEscalated
-              ? 'Agent Active · AI paused, a human agent is with you'
+              ? 'A human agent is with you'
               : 'Online · replies instantly'
           }}
         </p>
@@ -132,9 +182,9 @@ onBeforeUnmount(() => store.stopPolling())
       <button
         type="button"
         data-test="chat-close"
-        @click="open = false"
+        @click="handleEndChat"
         class="flex size-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-        aria-label="Minimize chat"
+        aria-label="End chat"
       >
         <svg
           fill="none"
@@ -147,7 +197,7 @@ onBeforeUnmount(() => store.stopPolling())
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
-            d="m4.5 15.75 7.5-7.5 7.5 7.5"
+            d="M6 18L18 6M6 6l12 12"
           />
         </svg>
       </button>

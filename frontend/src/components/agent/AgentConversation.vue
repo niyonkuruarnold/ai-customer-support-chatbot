@@ -1,10 +1,21 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useAgentStore } from '../../stores/agent'
+import { useWebSocket } from '../../composables/useWebSocket'
 import ChatMessage from '../ChatMessage.vue'
 import { updateTicketStatus, updateTicketAgent } from '../../api/admin'
 
 const store = useAgentStore()
+
+// WebSocket for real-time messaging
+const {
+  isConnected: wsConnected,
+  connect: wsConnect,
+  disconnect: wsDisconnect,
+  sendChatMessage,
+  subscribeToSession,
+  subscribeToAgentChannel,
+} = useWebSocket()
 
 const replyText = ref('')
 const noteText = ref('')
@@ -12,6 +23,10 @@ const feedRef = ref(null)
 const statusLoading = ref(false)
 const agentLoading = ref(false)
 const assigneeInput = ref('')
+const isNoteMode = ref(false) // Toggle between reply and note mode
+
+let sessionSubId = null
+let agentSubId = null
 
 const SENDER_TO_ROLE = { USER: 'user', AI: 'assistant', AGENT: 'agent' }
 
@@ -22,6 +37,12 @@ const isConnected = computed(() =>
 const summaryBullets = computed(() =>
   (store.activeSummary || '').split('\n').filter((b) => b.trim().length > 0),
 )
+
+// WebSocket connection status
+const connectionStatus = computed(() => {
+  if (wsConnected.value) return 'connected'
+  return 'polling'
+})
 
 const sentimentClass = {
   positive: 'bg-emerald-100 text-emerald-700',
@@ -58,14 +79,84 @@ function formatTime(value) {
 }
 
 async function sendReply() {
-  const ok = await store.sendReply(replyText.value)
-  if (ok) replyText.value = ''
+  const content = replyText.value.trim()
+  if (!content) return
+  
+  // Send via WebSocket for instant delivery
+  if (wsConnected.value && store.activeTicket) {
+    sendChatMessage(store.activeTicket.sessionId, {
+      sender: 'AGENT',
+      content,
+      internal: false,
+    })
+    replyText.value = ''
+  } else {
+    // Fallback to REST API
+    const ok = await store.sendReply(replyText.value)
+    if (ok) replyText.value = ''
+  }
 }
 
 function saveNote() {
-  store.addNote(noteText.value)
-  noteText.value = ''
+  const content = noteText.value.trim()
+  if (!content) return
+  
+  // Send via WebSocket for instant delivery to other agents
+  if (wsConnected.value && store.activeTicket) {
+    sendChatMessage(store.activeTicket.sessionId, {
+      sender: 'AGENT',
+      content,
+      internal: true,
+    })
+    noteText.value = ''
+    isNoteMode.value = false
+  } else {
+    // Fallback to REST API
+    store.addNote(noteText.value)
+    noteText.value = ''
+  }
 }
+
+// Subscribe to WebSocket when ticket is selected
+watch(
+  () => store.activeTicket,
+  async (newTicket, oldTicket) => {
+    // Cleanup old subscriptions
+    if (oldTicket) {
+      if (sessionSubId) {
+        // unsub handled by composable cleanup
+      }
+      if (agentSubId) {
+        // unsub handled by composable cleanup
+      }
+    }
+    
+    // Connect WebSocket if not already connected
+    if (newTicket && !wsConnected.value) {
+      wsConnect()
+    }
+    
+    // Subscribe to session channel (all messages)
+    if (newTicket) {
+      sessionSubId = subscribeToSession(newTicket.sessionId, (message) => {
+        // Handle incoming messages - they'll be picked up by polling
+        // but WebSocket provides instant delivery
+        console.debug('[Agent] Received message:', message)
+      })
+      
+      // Subscribe to agent-only channel (internal notes)
+      agentSubId = subscribeToAgentChannel(newTicket.sessionId, (message) => {
+        // Handle internal notes from other agents
+        console.debug('[Agent] Received internal note:', message)
+      })
+    }
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  wsDisconnect()
+})
 
 /** Status update toggles (RESOLVED, CLOSED) */
 const STATUS_OPTIONS = [
@@ -210,23 +301,29 @@ async function handleAssign() {
         </p>
       </div>
 
-      <!-- Real-time handoff banner -->
+      <!-- Real-time connection status -->
       <div
         v-if="isConnected"
         class="border-b border-emerald-200 bg-emerald-50 px-4 py-2"
       >
-        <p class="flex items-center gap-2 text-xs font-medium text-emerald-700">
-          <span class="relative flex size-2" aria-hidden="true">
-            <span
-              class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75"
-            ></span>
-            <span
-              class="relative inline-flex size-2 rounded-full bg-emerald-500"
-            ></span>
-          </span>
-          Connected to Human Agent — replies you send appear instantly in the
-          customer's chat.
-        </p>
+        <div class="flex items-center justify-between">
+          <p class="flex items-center gap-2 text-xs font-medium text-emerald-700">
+            <span class="relative flex size-2" aria-hidden="true">
+              <span
+                class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75"
+              ></span>
+              <span
+                class="relative inline-flex size-2 rounded-full bg-emerald-500"
+              ></span>
+            </span>
+            <template v-if="wsConnected">
+              <span class="text-emerald-600">● Live</span> — Real-time WebSocket connected
+            </template>
+            <template v-else>
+              <span class="text-amber-600">● Polling</span> — Updates refresh every 5s
+            </template>
+          </p>
+        </div>
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto">
@@ -302,27 +399,31 @@ async function handleAssign() {
             </li>
           </ul>
           <p v-else class="mt-2 text-xs text-slate-400">No notes yet.</p>
-          <div class="mt-2 flex gap-2">
-            <input
-              v-model="noteText"
-              type="text"
-              placeholder="Add an internal note…"
-              class="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-              @keydown.enter.prevent="saveNote"
-            />
-            <button
-              type="button"
-              @click="saveNote"
-              :disabled="!noteText.trim()"
-              class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition enabled:hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
         </div>
 
         <div class="px-4 py-3">
-          <form class="flex items-end gap-2" @submit.prevent="sendReply">
+          <!-- Mode toggle -->
+          <div class="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              @click="isNoteMode = false"
+              class="rounded-lg px-3 py-1.5 text-xs font-medium transition"
+              :class="!isNoteMode ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-100'"
+            >
+              💬 Reply
+            </button>
+            <button
+              type="button"
+              @click="isNoteMode = true"
+              class="rounded-lg px-3 py-1.5 text-xs font-medium transition"
+              :class="isNoteMode ? 'bg-amber-100 text-amber-700' : 'text-slate-500 hover:bg-slate-100'"
+            >
+              📝 Internal Note
+            </button>
+          </div>
+
+          <!-- Reply input -->
+          <form v-if="!isNoteMode" class="flex items-end gap-2" @submit.prevent="sendReply">
             <textarea
               v-model="replyText"
               rows="1"
@@ -353,6 +454,40 @@ async function handleAssign() {
               </svg>
             </button>
           </form>
+
+          <!-- Internal note input -->
+          <div v-else class="flex items-end gap-2">
+            <textarea
+              v-model="noteText"
+              rows="1"
+              maxlength="2000"
+              placeholder="Add an internal note (hidden from customer)…"
+              class="max-h-32 min-w-0 flex-1 resize-none rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-slate-900 shadow-sm outline-none transition placeholder:text-amber-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              @keydown.enter.exact.prevent="saveNote"
+            ></textarea>
+            <button
+              type="button"
+              @click="saveNote"
+              :disabled="!noteText.trim()"
+              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md transition enabled:hover:shadow-lg enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Save internal note"
+            >
+              <svg
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="2"
+                stroke="currentColor"
+                class="size-5"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M16.5 3.75V16.5L12 14.25 7.5 16.5V3.75m9 0H7.5m9 0h1.5m-1.5 0H6M3.75 3.75h16.5M3.75 3.75v16.5a.75.75 0 00.75.75H7.5"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </template>

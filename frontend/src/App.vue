@@ -8,6 +8,7 @@ import {
   watch,
 } from 'vue'
 import ChatMessage from './components/ChatMessage.vue'
+import ChatFeedbackModal from './components/ChatFeedbackModal.vue'
 import SyncStatusBadge from './components/SyncStatusBadge.vue'
 import TypingIndicator from './components/TypingIndicator.vue'
 import AgentWorkspace from './components/agent/AgentWorkspace.vue'
@@ -21,6 +22,10 @@ import { fetchSuggestedQuestions } from './api/chat'
 
 const store = useChatStore()
 const agentStore = useAgentStore()
+
+// ── Feedback modal state ────────────────────────────────────────────
+const showFeedbackModal = ref(false)
+const feedbackSubmitted = ref(false)
 
 // ── Role constants ─────────────────────────────────────────────────────
 const ROLES = { CUSTOMER: 'CUSTOMER', AGENT: 'AGENT', ADMIN: 'ADMIN' }
@@ -152,6 +157,26 @@ async function confirmNewChat() {
 
 function cancelNewChat() {
   showNewChatModal.value = false
+}
+
+// ── Feedback handlers ──────────────────────────────────────────────
+function handleEndChat() {
+  if (store.sessionId && !feedbackSubmitted.value && store.hasMessages) {
+    showFeedbackModal.value = true
+  } else {
+    confirmNewChat()
+  }
+}
+
+function handleFeedbackSubmitted(data) {
+  feedbackSubmitted.value = true
+  showFeedbackModal.value = false
+  confirmNewChat()
+}
+
+function handleFeedbackClose() {
+  showFeedbackModal.value = false
+  confirmNewChat()
 }
 
 // ── Chat input state (customer widget + expanded portal) ────────────────
@@ -354,9 +379,26 @@ const staffRoleLabel = computed(() => {
       <header class="rounded-t-3xl bg-red-900 p-5 text-white">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-[10px] font-bold uppercase tracking-widest text-red-300">
-              AI CONCIERGE
-            </p>
+            <div class="flex items-center gap-2">
+              <p class="text-[10px] font-bold uppercase tracking-widest text-red-300">
+                AI CONCIERGE
+              </p>
+              <!-- Status Badge -->
+              <span
+                class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                :class="
+                  store.isEscalated
+                    ? 'bg-amber-200 text-amber-900'
+                    : 'bg-emerald-200 text-emerald-900'
+                "
+              >
+                {{
+                  store.isEscalated
+                    ? 'Connected to Agent'
+                    : 'AI Assistant'
+                }}
+              </span>
+            </div>
             <h1 class="mt-1 text-lg font-bold leading-tight">
               CODAFRIQA Smart Assistant
             </h1>
@@ -571,6 +613,14 @@ const staffRoleLabel = computed(() => {
       </div>
     </section>
 
+    <!-- Feedback Modal -->
+    <ChatFeedbackModal
+      :session-id="store.sessionId"
+      :visible="showFeedbackModal"
+      @submitted="handleFeedbackSubmitted"
+      @close="handleFeedbackClose"
+    />
+
     <!-- ── Full-Screen Expanded Portal ───────────────────────────────── -->
     <div
       v-if="isOpen && expanded"
@@ -641,6 +691,32 @@ const staffRoleLabel = computed(() => {
           <!-- Spacer + role badge + dev role switcher + controls -->
           <div class="ml-auto flex items-center gap-2">
             <SyncStatusBadge v-if="view === 'chat'" />
+            <!-- Status Badge in header -->
+            <span
+              v-if="view === 'chat'"
+              class="hidden items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium sm:inline-flex"
+              :class="
+                store.isEscalated
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-emerald-100 text-emerald-700'
+              "
+            >
+              <span class="relative flex size-1.5" aria-hidden="true">
+                <span
+                  class="absolute inline-flex size-full animate-ping rounded-full opacity-75"
+                  :class="store.isEscalated ? 'bg-amber-400' : 'bg-emerald-400'"
+                ></span>
+                <span
+                  class="relative inline-flex size-1.5 rounded-full"
+                  :class="store.isEscalated ? 'bg-amber-500' : 'bg-emerald-500'"
+                ></span>
+              </span>
+              {{
+                store.isEscalated
+                  ? 'Connected to Agent'
+                  : 'AI Assistant'
+              }}
+            </span>
             <span
               class="hidden rounded-full px-2.5 py-1 text-[11px] font-medium sm:inline-block"
               :class="roleBadgeClass"

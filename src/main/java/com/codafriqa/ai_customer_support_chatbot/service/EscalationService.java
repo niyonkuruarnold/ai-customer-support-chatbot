@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
+import com.codafriqa.ai_customer_support_chatbot.controller.WebSocketChatController;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatMessage;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatSession;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
@@ -67,15 +68,18 @@ public class EscalationService {
     private final ChatSessionRepository sessionRepository;
     private final SupportTicketRepository ticketRepository;
     private final SupportTicketService supportTicketService;
+    private final WebSocketChatController webSocketController;
 
     public EscalationService(ChatModel chatModel,
                              ChatSessionRepository sessionRepository,
                              SupportTicketRepository ticketRepository,
-                             SupportTicketService supportTicketService) {
+                             SupportTicketService supportTicketService,
+                             WebSocketChatController webSocketController) {
         this.chatModel = chatModel;
         this.sessionRepository = sessionRepository;
         this.ticketRepository = ticketRepository;
         this.supportTicketService = supportTicketService;
+        this.webSocketController = webSocketController;
     }
 
     /** Whether the customer's message requests a human agent. */
@@ -114,7 +118,17 @@ public class EscalationService {
         ticket.setPriority(priorityForSentiment(summary.sentiment()));
         ticket.setAiSummary(summary.summary());
         ticket.setSentiment(summary.sentiment());
-        return ticketRepository.save(ticket);
+        
+        SupportTicket savedTicket = ticketRepository.save(ticket);
+        
+        // Broadcast the AI summary via WebSocket to all subscribers
+        try {
+            webSocketController.broadcastSummary(session.getId(), summary.summary(), summary.sentiment());
+        } catch (Exception e) {
+            log.debug("WebSocket broadcast failed (client may not be connected): {}", e.getMessage());
+        }
+        
+        return savedTicket;
     }
 
     /** Generate a 2-3 bullet handoff summary plus customer sentiment via Spring AI. */

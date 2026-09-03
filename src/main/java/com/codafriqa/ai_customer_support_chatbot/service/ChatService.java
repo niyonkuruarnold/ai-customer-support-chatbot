@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
+import com.codafriqa.ai_customer_support_chatbot.controller.WebSocketChatController;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatMessageDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatResponseDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.SourceCitationDto;
@@ -71,6 +72,7 @@ public class ChatService {
     private final EscalationService escalationService;
     private final RagService ragService;
     private final UserService userService;
+    private final WebSocketChatController webSocketController;
     private final String geminiApiKey;
 
     public ChatService(ChatClient.Builder chatClientBuilder,
@@ -79,6 +81,7 @@ public class ChatService {
                        EscalationService escalationService,
                        RagService ragService,
                        UserService userService,
+                       WebSocketChatController webSocketController,
                        @Value("${spring.ai.google.genai.api-key:}") String geminiApiKey) {
         this.chatClient = chatClientBuilder.build();
         this.sessionRepository = sessionRepository;
@@ -86,6 +89,7 @@ public class ChatService {
         this.escalationService = escalationService;
         this.ragService = ragService;
         this.userService = userService;
+        this.webSocketController = webSocketController;
         this.geminiApiKey = geminiApiKey;
     }
 
@@ -161,12 +165,26 @@ public class ChatService {
 
         messageRepository.save(new ChatMessage(session.getId(), "AI", generation.text()));
 
+        // Broadcast AI response via WebSocket
+        try {
+            webSocketController.broadcastStatusChange(session.getId(), session.getStatus());
+        } catch (Exception e) {
+            log.debug("WebSocket broadcast failed (client may not be connected): {}", e.getMessage());
+        }
+
         // Escalate whenever the customer explicitly asks for a human agent.
         // This must fire regardless of RAG context so that a support ticket
         // is always created and the session moves to ESCALATED status.
         if (explicitEscalationRequest) {
             List<ChatMessage> transcript = messageRepository.findBySessionIdOrderByTimestampAsc(session.getId());
             escalationService.escalate(session, userMessage, transcript);
+            
+            // Broadcast status change to all subscribers
+            try {
+                webSocketController.broadcastStatusChange(session.getId(), "ESCALATED");
+            } catch (Exception e) {
+                log.debug("WebSocket broadcast failed: {}", e.getMessage());
+            }
         }
 
         ChatResponseDto response = new ChatResponseDto(generation.text(), session.getId(), session.getStatus());
@@ -321,6 +339,12 @@ public class ChatService {
     }
 
     private ChatMessageDto toMessageDto(ChatMessage message) {
-        return new ChatMessageDto(message.getId(), message.getSender(), message.getContent(), message.getTimestamp());
+        return new ChatMessageDto(
+            message.getId(), 
+            message.getSender(), 
+            message.getContent(), 
+            message.getTimestamp(),
+            message.isInternal()
+        );
     }
 }

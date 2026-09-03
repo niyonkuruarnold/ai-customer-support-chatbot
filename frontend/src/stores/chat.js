@@ -34,6 +34,10 @@ function parseTimestamp(value) {
 }
 
 function mapServerMessage(m) {
+  // Filter out internal notes - they should never appear in customer chat
+  if (m.internal === true) {
+    return null
+  }
   return {
     id: `srv-${m.id}`,
     serverId: m.id,
@@ -89,7 +93,7 @@ export const useChatStore = defineStore('chat', {
         try {
           const info = await fetchSessionInfo(this.sessionId)
           this.sessionStatus = info.status ?? this.sessionStatus
-          this.messages = (info.messages ?? []).map(mapServerMessage)
+          this.messages = (info.messages ?? []).map(mapServerMessage).filter(Boolean)
           this.persist()
           this.startPolling()
           return
@@ -281,6 +285,7 @@ export const useChatStore = defineStore('chat', {
         // citations survive poll merges.
         const serverMessages = (info.messages ?? []).map((m) => {
           const mapped = mapServerMessage(m)
+          if (!mapped) return null
           const local = this.messages.find(
             (l) =>
               l.serverId === m.id ||
@@ -292,7 +297,7 @@ export const useChatStore = defineStore('chat', {
             mapped.sources = local.sources
           }
           return mapped
-        })
+        }).filter(Boolean)
         // Keep locally failed messages so the customer can retry them
         const localFailed = this.messages.filter((m) => m.status === 'failed')
         const next = serverMessages.concat(localFailed)

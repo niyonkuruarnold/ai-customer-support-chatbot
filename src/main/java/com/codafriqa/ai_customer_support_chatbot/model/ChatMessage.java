@@ -20,6 +20,13 @@ public class ChatMessage {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
+    /**
+     * Internal notes are agent-only and must never appear in the customer-facing chat.
+     * When true, this message is broadcast only to agent WebSocket subscribers.
+     */
+    @Column(nullable = false)
+    private boolean isInternal = false;
+
     private LocalDateTime timestamp = LocalDateTime.now();
 
     public ChatMessage() {}
@@ -28,6 +35,13 @@ public class ChatMessage {
         this.sessionId = sessionId;
         this.sender = sender;
         this.content = content;
+    }
+
+    public ChatMessage(Long sessionId, String sender, String content, boolean isInternal) {
+        this.sessionId = sessionId;
+        this.sender = sender;
+        this.content = content;
+        this.isInternal = isInternal;
     }
 
     public Long getId() { return id; }
@@ -44,4 +58,7 @@ public class ChatMessage {
 
     public LocalDateTime getTimestamp() { return timestamp; }
     public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+
+    public boolean isInternal() { return isInternal; }
+    public void setInternal(boolean internal) { isInternal = internal; }
 }

@@ -1,9 +1,12 @@
 package com.codafriqa.ai_customer_support_chatbot.controller;
 
+import com.codafriqa.ai_customer_support_chatbot.dto.ChatFeedbackDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatRequestDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.ChatResponseDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.SessionInfoDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.SuggestedQuestionsDto;
+import com.codafriqa.ai_customer_support_chatbot.model.ChatFeedback;
+import com.codafriqa.ai_customer_support_chatbot.service.ChatFeedbackService;
 import com.codafriqa.ai_customer_support_chatbot.service.ChatService;
 import com.codafriqa.ai_customer_support_chatbot.service.RagService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,10 +41,12 @@ public class ChatController {
 
     private final ChatService chatService;
     private final RagService ragService;
+    private final ChatFeedbackService chatFeedbackService;
 
-    public ChatController(ChatService chatService, RagService ragService) {
+    public ChatController(ChatService chatService, RagService ragService, ChatFeedbackService chatFeedbackService) {
         this.chatService = chatService;
         this.ragService = ragService;
+        this.chatFeedbackService = chatFeedbackService;
     }
 
     /**
@@ -179,6 +184,36 @@ public class ChatController {
     public ResponseEntity<Void> closeSession(@PathVariable Long id) {
         chatService.closeSession(id);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Submit CSAT feedback for a chat session.
+     */
+    @Operation(
+            summary = "Submit chat feedback",
+            description = "Submit a CSAT rating (1-5 stars) and optional comment for a completed chat session.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Feedback submitted successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request (missing rating, invalid session)"),
+            @ApiResponse(responseCode = "404", description = "Session not found")
+    })
+    @PostMapping("/feedback")
+    public ResponseEntity<ChatFeedback> submitFeedback(@Valid @RequestBody ChatFeedbackDto request) {
+        ChatFeedback feedback = chatFeedbackService.submitFeedback(request);
+        return ResponseEntity.ok(feedback);
+    }
+
+    /**
+     * Check if feedback has been submitted for a session.
+     */
+    @Operation(
+            summary = "Check feedback status",
+            description = "Check if feedback has already been submitted for a chat session.")
+    @ApiResponse(responseCode = "200", description = "Feedback status returned")
+    @GetMapping("/feedback/session/{id}")
+    public ResponseEntity<Boolean> hasFeedback(@PathVariable Long id) {
+        boolean hasFeedback = chatFeedbackService.hasFeedback(id);
+        return ResponseEntity.ok(hasFeedback);
     }
 
     /**

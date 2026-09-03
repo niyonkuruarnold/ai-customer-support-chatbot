@@ -52,6 +52,12 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
+        <!-- WebSocket support for real-time chat -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
         <!-- Spring AI Dependencies -->
         <!-- Spring AI: Google Gemini chat + embeddings -->
         <dependency>

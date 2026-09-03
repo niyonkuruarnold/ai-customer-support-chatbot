@@ -505,6 +505,20 @@ GET    /test/db-status           - Database connection check
 
 ## Quick Start
 
+### Option A: Docker Staging (Recommended)
+
+```bash
+# Build and start all services
+docker compose -f docker-compose.staging.yml up --build
+
+# Access the application
+# Frontend: http://localhost
+# Backend API: http://localhost:8080/api
+# Swagger UI: http://localhost:8080/swagger-ui.html
+```
+
+### Option B: Local Development
+
 ### Prerequisites
 
 ```bash
@@ -564,6 +578,18 @@ npm run dev
 ```
 
 The frontend is available at `http://localhost:5173`.
+
+### Seed Accounts
+
+The staging environment automatically creates the following test accounts:
+
+| Role | Email | Password | Access Level |
+|------|-------|----------|--------------|
+| System Administrator | admin@codafriqa.local | password123 | Full admin access |
+| Support Manager | manager@codafriqa.local | password123 | Manager dashboard |
+| Support Agent | agent@codafriqa.local | password123 | Agent workspace |
+| Knowledge Editor | editor@codafriqa.local | password123 | Knowledge base |
+| Customer | customer@codafriqa.local | password123 | Customer chat |
 
 ### Environment Configuration
 

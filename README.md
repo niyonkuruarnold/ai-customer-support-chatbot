@@ -637,12 +637,42 @@ GET    /api/audit/stats              - Audit statistics
 </details>
 
 <details>
+<summary><b>WebSocket (STOMP over SockJS)</b></summary>
+
+```
+# Connection endpoint
+GET/WS  /ws                          - SockJS fallback endpoint
+
+# Message destinations
+SEND     /app/chat.sendMessage/{id}   - Send chat message to session
+SUBSCRIBE /topic/chat/{sessionId}     - All messages + status changes (customer + agent)
+SUBSCRIBE /topic/agent/{sessionId}    - Internal notes only (agent-only channel)
+
+# Message format
+{
+  "sessionId": 1,
+  "sender": "CUSTOMER" | "AGENT",
+  "content": "message text",
+  "internal": false,
+  "type": "MESSAGE" | "NOTE" | "SUMMARY" | "STATUS_CHANGE"
+}
+
+# Broadcast types
+- MESSAGE:  Regular chat message → /topic/chat/{id}
+- NOTE:     Internal note → /topic/agent/{id} ONLY (not customer)
+- SUMMARY:  AI handoff summary → /topic/chat/{id}
+- STATUS_CHANGE: Status update → /topic/chat/{id}
+```
+</details>
+
+<details>
 <summary><b>Health Checks</b></summary>
 
 ```
-GET    /api/health               - Backend health check
-GET    /test/health              - Server health status
-GET    /test/db-status           - Database connection check
+GET    /api/health               - Basic health check (UP status)
+GET    /api/health/detail        - Detailed health (DB, memory, Java version)
+GET    /api/chat/health          - Chat endpoint health
+GET    /actuator/health          - Spring Actuator health (if enabled)
 ```
 </details>
 

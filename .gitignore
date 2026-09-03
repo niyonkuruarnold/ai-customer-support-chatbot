@@ -18,6 +18,13 @@ buildNumber.properties
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
 
+# Node.js / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
 # OS
 .DS_Store
 Thumbs.db
@@ -39,8 +46,18 @@ build/
 application.properties.local
 application-local.properties
 *.log
+logs/
 
 # Environment variables (secrets — never commit). Keep .env.example tracked.
 .env
 .env.local
 .env.*.local
+.env.production
+
+# Docker
+docker-compose.override.yml
+
+# Test artifacts
+/tmp/
+coverage/
+.nyc_output/

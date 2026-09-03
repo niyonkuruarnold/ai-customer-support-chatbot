@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "support_tickets")
@@ -14,6 +15,10 @@ public class SupportTicket {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /** Unique ticket reference for customer-facing display (e.g., TICKET-ABC123). */
+    @Column(nullable = false, unique = true)
+    private String ticketReference;
 
     @Column(nullable = false)
     private Long userId;
@@ -27,11 +32,19 @@ public class SupportTicket {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String description;
 
+    /**
+     * Ticket status lifecycle:
+     * NEW -> OPEN -> PENDING_CUSTOMER/PENDING_INTERNAL -> RESOLVED -> CLOSED
+     * Also supports REOPENED from CLOSED/RESOLVED.
+     */
     @Column(nullable = false)
-    private String status = "OPEN"; // OPEN, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED
+    private String status = "NEW"; // NEW, OPEN, PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED, REOPENED
 
     @Column(nullable = false)
     private String priority = "MEDIUM"; // LOW, MEDIUM, HIGH, URGENT
+
+    /** Category for ticket classification (e.g., BILLING, TECHNICAL, GENERAL). */
+    private String category = "GENERAL";
 
     /** Username of the agent who took over this ticket (null until takeover). */
     private String assignedAgent;
@@ -50,6 +63,16 @@ public class SupportTicket {
     @Column(name = "note")
     private List<String> internalNotes = new ArrayList<>();
 
+    /** Timestamp when the ticket was last closed (for reopen tracking). */
+    private LocalDateTime closedAt;
+
+    /** Count of customer replies while in PENDING_CUSTOMER status. */
+    @Column(nullable = false)
+    private Integer customerReplyCount = 0;
+
+    /** Timestamp when the ticket was last reopened. */
+    private LocalDateTime reopenedAt;
+
     private LocalDateTime createdAt = LocalDateTime.now();
     private LocalDateTime updatedAt = LocalDateTime.now();
 
@@ -60,6 +83,12 @@ public class SupportTicket {
         this.sessionId = sessionId;
         this.subject = subject;
         this.description = description;
+        this.ticketReference = generateTicketReference();
+    }
+
+    /** Generate a unique ticket reference like TICKET-ABC123. */
+    private static String generateTicketReference() {
+        return "TICKET-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
     }
 
     @PrePersist
@@ -103,6 +132,21 @@ public class SupportTicket {
 
     public String getSentiment() { return sentiment; }
     public void setSentiment(String sentiment) { this.sentiment = sentiment; }
+
+    public String getTicketReference() { return ticketReference; }
+    public void setTicketReference(String ticketReference) { this.ticketReference = ticketReference; }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+
+    public LocalDateTime getClosedAt() { return closedAt; }
+    public void setClosedAt(LocalDateTime closedAt) { this.closedAt = closedAt; }
+
+    public Integer getCustomerReplyCount() { return customerReplyCount; }
+    public void setCustomerReplyCount(Integer customerReplyCount) { this.customerReplyCount = customerReplyCount; }
+
+    public LocalDateTime getReopenedAt() { return reopenedAt; }
+    public void setReopenedAt(LocalDateTime reopenedAt) { this.reopenedAt = reopenedAt; }
 
     public List<String> getInternalNotes() { return internalNotes; }
     public void setInternalNotes(List<String> internalNotes) { this.internalNotes = internalNotes; }

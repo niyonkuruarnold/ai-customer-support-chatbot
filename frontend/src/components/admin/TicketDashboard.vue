@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { closeTicket, fetchTickets, updateTicketStatus, updateTicketAgent, deleteTicket } from '../../api/admin'
+import { closeTicket, fetchTickets, updateTicketStatus, updateTicketAgent, deleteTicket, getTicketActivityLogs, reopenTicket } from '../../api/admin'
 import { useAgentStore } from '../../stores/agent'
 import { useToasts } from '../../composables/useToasts'
+import TicketTimeline from '../tickets/TicketTimeline.vue'
 
 const props = defineProps({
   /** When true, the parent shell provides the header and auth gate. */
@@ -36,28 +37,39 @@ const loadError = ref('')
 const closingId = ref(null)
 const updatingId = ref(null)
 const deletingId = ref(null)
+const selectedTicket = ref(null)
+const activityLogs = ref([])
+const loadingActivity = ref(false)
 
 const isAuthenticated = computed(() => agentStore.authenticated)
 
 // Pageable support: first page is 0, so the UI labels are 1-based
 const currentPageLabel = computed(() => (totalPages === 0 ? 0 : page.value + 1))
 
-const STATUS_OPTIONS = ['OPEN', 'ESCALATED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
+const STATUS_OPTIONS = ['NEW', 'OPEN', 'PENDING_CUSTOMER', 'PENDING_INTERNAL', 'IN_PROGRESS', 'RESOLVED', 'CLOSED', 'REOPENED']
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 
 const statusLabel = {
+  NEW: 'New',
   OPEN: 'Open',
+  PENDING_CUSTOMER: 'Pending Customer',
+  PENDING_INTERNAL: 'Pending Internal',
+  IN_PROGRESS: 'In Progress',
   ESCALATED: 'Escalated',
-  IN_PROGRESS: 'In progress',
   RESOLVED: 'Resolved',
   CLOSED: 'Closed',
+  REOPENED: 'Reopened',
 }
 const statusClass = {
+  NEW: 'bg-blue-100 text-blue-700',
   OPEN: 'bg-sky-100 text-sky-700',
-  ESCALATED: 'bg-amber-100 text-amber-700',
+  PENDING_CUSTOMER: 'bg-amber-100 text-amber-700',
+  PENDING_INTERNAL: 'bg-purple-100 text-purple-700',
   IN_PROGRESS: 'bg-indigo-100 text-indigo-700',
+  ESCALATED: 'bg-amber-100 text-amber-700',
   RESOLVED: 'bg-emerald-100 text-emerald-700',
   CLOSED: 'bg-slate-200 text-slate-600',
+  REOPENED: 'bg-orange-100 text-orange-700',
 }
 const priorityClass = {
   LOW: 'bg-slate-100 text-slate-600',
@@ -250,6 +262,35 @@ function formatDate(value) {
         hour: '2-digit',
         minute: '2-digit',
       })
+}
+
+async function selectTicket(ticket) {
+  selectedTicket.value = ticket
+  loadingActivity.value = true
+  try {
+    activityLogs.value = await getTicketActivityLogs(ticket.id)
+  } catch (err) {
+    console.error('Failed to load activity logs:', err)
+    activityLogs.value = []
+  } finally {
+    loadingActivity.value = false
+  }
+}
+
+async function handleReopen(ticket) {
+  updatingId.value = ticket.id
+  try {
+    await reopenTicket(ticket.id, 'Reopened by admin')
+    ticket.status = 'REOPENED'
+    push('success', `Ticket #${ticket.id} reopened.`)
+    if (selectedTicket.value?.id === ticket.id) {
+      await selectTicket(ticket)
+    }
+  } catch (err) {
+    push('error', err?.response?.data?.message || `Could not reopen ticket #${ticket.id}.`)
+  } finally {
+    updatingId.value = null
+  }
 }
 </script>
 
@@ -574,6 +615,28 @@ function formatDate(value) {
                         @change="handleAgentChange(ticket, $event.target.value)"
                       />
 
+                      <!-- View Timeline button -->
+                      <button
+                        type="button"
+                        @click="selectTicket(ticket)"
+                        class="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                        :aria-label="`View timeline for ticket ${ticket.id}`"
+                      >
+                        📋 Timeline
+                      </button>
+
+                      <!-- Reopen button (CLOSED/RESOLVED only) -->
+                      <button
+                        v-if="ticket.status === 'CLOSED' || ticket.status === 'RESOLVED'"
+                        type="button"
+                        :disabled="updatingId === ticket.id"
+                        @click="handleReopen(ticket)"
+                        class="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        :aria-label="`Reopen ticket ${ticket.id}`"
+                      >
+                        🔁 Reopen
+                      </button>
+
                       <!-- Close button (RESOLVED only) -->
                       <button
                         v-if="ticket.status === 'RESOLVED'"
@@ -619,6 +682,32 @@ function formatDate(value) {
             </table>
             </div>
           </div>
+
+          <!-- Ticket Activity Timeline -->
+          <section v-if="selectedTicket" class="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-slate-800">
+                Activity Timeline — Ticket #{{ selectedTicket.id }}
+              </h3>
+              <button
+                type="button"
+                @click="selectedTicket = null"
+                class="text-xs text-slate-400 hover:text-slate-600"
+              >
+                Close
+              </button>
+            </div>
+            
+            <div v-if="loadingActivity" class="py-8 text-center text-sm text-slate-400">
+              Loading activity...
+            </div>
+            
+            <TicketTimeline
+              v-else
+              :logs="activityLogs"
+              class="mt-4"
+            />
+          </section>
 
           <!-- Pagination -->
           <nav

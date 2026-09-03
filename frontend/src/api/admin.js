@@ -132,3 +132,89 @@ export function updateTicketAgent(id, assignedAgent) {
 export function deleteTicket(id) {
   return request(async () => adminClient.delete(`/v1/tickets/${id}`))
 }
+
+// ─── New Ticket Operations ───────────────────────────────────────────
+
+/**
+ * Update ticket status with new state machine.
+ * POST /api/tickets/{id}/status  ({ status, reason? })
+ * @param {number} id
+ * @param {string} status
+ * @param {string} [reason]
+ */
+export function updateTicketStatusNew(id, status, reason = null) {
+  return request(
+    async () => (await adminClient.post(`/tickets/${id}/status`, { status, reason })).data,
+  )
+}
+
+/**
+ * Update ticket priority.
+ * POST /api/tickets/{id}/priority  ({ priority })
+ * @param {number} id
+ * @param {string} priority - LOW, MEDIUM, HIGH, URGENT
+ */
+export function updateTicketPriority(id, priority) {
+  return request(
+    async () => (await adminClient.post(`/tickets/${id}/priority`, { priority })).data,
+  )
+}
+
+/**
+ * Reassign ticket to a different agent.
+ * POST /api/tickets/{id}/assign  ({ assignedAgent })
+ * @param {number} id
+ * @param {string} assignedAgent
+ */
+export function reassignTicket(id, assignedAgent) {
+  return request(
+    async () => (await adminClient.post(`/tickets/${id}/assign`, { assignedAgent })).data,
+  )
+}
+
+/**
+ * Add a note (public or internal) to a ticket.
+ * POST /api/tickets/{id}/notes  ({ content, isInternal })
+ * @param {number} id
+ * @param {string} content
+ * @param {boolean} isInternal
+ */
+export function addTicketNote(id, content, isInternal = true) {
+  return request(
+    async () => (await adminClient.post(`/tickets/${id}/notes`, { content, isInternal })).data,
+  )
+}
+
+/**
+ * Reopen a resolved or closed ticket.
+ * POST /api/tickets/{id}/reopen  ({ reason? })
+ * @param {number} id
+ * @param {string} [reason]
+ */
+export function reopenTicket(id, reason = null) {
+  return request(
+    async () => (await adminClient.post(`/tickets/${id}/reopen`, { reason })).data,
+  )
+}
+
+/**
+ * Get ticket activity logs (timeline).
+ * GET /api/tickets/{id}/activity?customerOnly=false
+ * @param {number} id
+ * @param {boolean} customerOnly
+ */
+export function getTicketActivityLogs(id, customerOnly = false) {
+  return request(
+    async () => (await adminClient.get(`/tickets/${id}/activity`, { params: { customerOnly } })).data,
+  )
+}
+
+/**
+ * Get ticket statistics.
+ * GET /api/tickets/stats
+ */
+export function getTicketStats() {
+  return request(
+    async () => (await adminClient.get('/tickets/stats')).data,
+  )
+}

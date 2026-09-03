@@ -13,6 +13,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -32,13 +33,16 @@ public class SupportTicketService {
     private final SupportTicketRepository ticketRepository;
     private final UserRepository userRepository;
     private final EmailNotificationService emailService;
+    private final ActivityLogService activityLogService;
 
     public SupportTicketService(SupportTicketRepository ticketRepository,
                                 UserRepository userRepository,
-                                EmailNotificationService emailService) {
+                                EmailNotificationService emailService,
+                                ActivityLogService activityLogService) {
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
         this.emailService = emailService;
+        this.activityLogService = activityLogService;
     }
 
     // ------------------------------------------------------------------
@@ -47,8 +51,14 @@ public class SupportTicketService {
 
     /** Create a new ticket in OPEN status and notify the customer. */
     public SupportTicket open(Long userId, Long sessionId, String subject, String description) {
-        SupportTicket ticket = ticketRepository.save(
-                new SupportTicket(userId, sessionId, subject, description));
+        SupportTicket ticket = new SupportTicket(userId, sessionId, subject, description);
+        ticket.setStatus("OPEN");
+        ticket = ticketRepository.save(ticket);
+        
+        // Log ticket creation
+        activityLogService.logCustom(ticket.getId(), userId, "System", "CREATED",
+            "Ticket created: " + subject, true);
+        
         emailService.sendTicketNotification(
                 userEmail(userId), ticket, EmailNotificationService.TicketEvent.OPENED);
         return ticket;
@@ -57,9 +67,17 @@ public class SupportTicketService {
     /** Assign an open/escalated ticket to an agent -> IN_PROGRESS (+ email). */
     public SupportTicket takeOver(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
+        String oldStatus = ticket.getStatus();
+        String oldAssignee = ticket.getAssignedAgent();
+        
         transitionTo(ticket, "IN_PROGRESS");
         ticket.setAssignedAgent(agentName);
-        ticketRepository.save(ticket);
+        ticket = ticketRepository.save(ticket);
+        
+        // Log status change and assignment
+        activityLogService.logStatusChange(ticket.getId(), null, agentName, oldStatus, "IN_PROGRESS");
+        activityLogService.logAssignment(ticket.getId(), null, agentName, oldAssignee, agentName);
+        
         emailService.sendTicketNotification(
                 userEmail(ticket.getUserId()), ticket, EmailNotificationService.TicketEvent.UPDATED);
         return ticket;
@@ -68,11 +86,17 @@ public class SupportTicketService {
     /** Resolve an open/escalated/in-progress ticket -> RESOLVED (+ email). */
     public SupportTicket resolve(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
+        String oldStatus = ticket.getStatus();
+        
         transitionTo(ticket, "RESOLVED");
         if (ticket.getAssignedAgent() == null) {
             ticket.setAssignedAgent(agentName);
         }
-        ticketRepository.save(ticket);
+        ticket = ticketRepository.save(ticket);
+        
+        // Log status change
+        activityLogService.logStatusChange(ticket.getId(), null, agentName, oldStatus, "RESOLVED");
+        
         emailService.sendTicketNotification(
                 userEmail(ticket.getUserId()), ticket, EmailNotificationService.TicketEvent.RESOLVED);
         return ticket;
@@ -81,23 +105,50 @@ public class SupportTicketService {
     /** Close a resolved ticket -> CLOSED (terminal; no email per spec). */
     public SupportTicket close(Long id) {
         SupportTicket ticket = findTicket(id);
+        String oldStatus = ticket.getStatus();
+        
         transitionTo(ticket, "CLOSED");
-        return ticketRepository.save(ticket);
+        ticket.setClosedAt(LocalDateTime.now());
+        ticket = ticketRepository.save(ticket);
+        
+        // Log status change
+        activityLogService.logStatusChange(ticket.getId(), null, "System", oldStatus, "CLOSED");
+        
+        return ticket;
     }
 
     /**
      * Admin override: set any valid status on a ticket.
-     * Allowed target statuses: OPEN, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED.
+     * Allowed target statuses: NEW, OPEN, PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED, REOPENED.
      * Throws IllegalArgumentException for invalid targets.
      */
     public SupportTicket updateStatus(Long id, String targetStatus) {
         SupportTicket ticket = findTicket(id);
         String normalized = targetStatus.trim().toUpperCase(Locale.ROOT);
-        if (!List.of("OPEN", "IN_PROGRESS", "ESCALATED", "RESOLVED", "CLOSED").contains(normalized)) {
+        if (!List.of("NEW", "OPEN", "PENDING_CUSTOMER", "PENDING_INTERNAL", 
+                     "RESOLVED", "CLOSED", "REOPENED").contains(normalized)) {
             throw new IllegalArgumentException("Invalid ticket status: " + normalized);
         }
+        
+        String oldStatus = ticket.getStatus();
         ticket.setStatus(normalized);
+        
+        // Handle reopen logic
+        if ("REOPENED".equals(normalized)) {
+            ticket.setReopenedAt(LocalDateTime.now());
+            ticket.setCustomerReplyCount(0);
+        }
+        
+        // Handle pending customer status
+        if ("PENDING_CUSTOMER".equals(normalized)) {
+            ticket.setCustomerReplyCount(0);
+        }
+        
         SupportTicket saved = ticketRepository.save(ticket);
+        
+        // Log status change
+        activityLogService.logStatusChange(saved.getId(), null, "Admin", oldStatus, normalized);
+        
         emailService.sendTicketNotification(
                 userEmail(ticket.getUserId()), saved, EmailNotificationService.TicketEvent.UPDATED);
         return saved;
@@ -106,8 +157,15 @@ public class SupportTicketService {
     /** Admin: reassign a ticket to a different agent. */
     public SupportTicket updateAssignedAgent(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
+        String oldAssignee = ticket.getAssignedAgent();
+        
         ticket.setAssignedAgent(agentName);
-        return ticketRepository.save(ticket);
+        ticket = ticketRepository.save(ticket);
+        
+        // Log assignment change
+        activityLogService.logAssignment(ticket.getId(), null, "Admin", oldAssignee, agentName);
+        
+        return ticket;
     }
 
     /** Admin: permanently delete a ticket and its associated notes. */
@@ -120,9 +178,19 @@ public class SupportTicketService {
     /**
      * Enforce the ticket state machine. Throws IllegalArgumentException on
      * any transition not allowed by the graph below.
+     * 
+     * State Machine:
+     * NEW -> OPEN
+     * OPEN -> PENDING_CUSTOMER, PENDING_INTERNAL, IN_PROGRESS, RESOLVED, CLOSED
+     * PENDING_CUSTOMER -> OPEN, IN_PROGRESS, RESOLVED, CLOSED (on customer reply)
+     * PENDING_INTERNAL -> OPEN, IN_PROGRESS, RESOLVED, CLOSED (when internal work done)
+     * IN_PROGRESS -> PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED
+     * RESOLVED -> CLOSED, REOPENED
+     * CLOSED -> REOPENED
+     * REOPENED -> OPEN, IN_PROGRESS, PENDING_CUSTOMER, PENDING_INTERNAL
      */
     private void transitionTo(SupportTicket ticket, String target) {
-        String current = ticket.getStatus() == null ? "OPEN" : ticket.getStatus().toUpperCase(Locale.ROOT);
+        String current = ticket.getStatus() == null ? "NEW" : ticket.getStatus().toUpperCase(Locale.ROOT);
         if (!canTransition(current, target)) {
             throw new IllegalArgumentException(
                     "Invalid ticket status transition: " + current + " -> " + target
@@ -133,11 +201,58 @@ public class SupportTicketService {
 
     private static boolean canTransition(String from, String to) {
         return switch (to) {
-            case "IN_PROGRESS" -> from.equals("OPEN") || from.equals("ESCALATED");
-            case "RESOLVED" -> from.equals("OPEN") || from.equals("ESCALATED") || from.equals("IN_PROGRESS");
+            case "OPEN" -> from.equals("NEW") || from.equals("PENDING_CUSTOMER") || 
+                          from.equals("PENDING_INTERNAL") || from.equals("REOPENED");
+            case "PENDING_CUSTOMER" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
+                                     from.equals("PENDING_INTERNAL") || from.equals("REOPENED");
+            case "PENDING_INTERNAL" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
+                                    from.equals("PENDING_CUSTOMER") || from.equals("REOPENED");
+            case "IN_PROGRESS" -> from.equals("OPEN") || from.equals("PENDING_CUSTOMER") || 
+                                from.equals("PENDING_INTERNAL") || from.equals("REOPENED");
+            case "RESOLVED" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
+                             from.equals("PENDING_CUSTOMER") || from.equals("PENDING_INTERNAL");
             case "CLOSED" -> from.equals("RESOLVED");
+            case "REOPENED" -> from.equals("RESOLVED") || from.equals("CLOSED");
             default -> false;
         };
+    }
+
+    /**
+     * Update ticket priority with logging.
+     */
+    public SupportTicket updatePriority(Long id, String newPriority) {
+        SupportTicket ticket = findTicket(id);
+        String oldPriority = ticket.getPriority();
+        
+        if (!List.of("LOW", "MEDIUM", "HIGH", "URGENT").contains(newPriority.toUpperCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("Invalid priority: " + newPriority);
+        }
+        
+        ticket.setPriority(newPriority.toUpperCase(Locale.ROOT));
+        ticket = ticketRepository.save(ticket);
+        
+        // Log priority change
+        activityLogService.logPriorityChange(ticket.getId(), null, "System", oldPriority, newPriority);
+        
+        return ticket;
+    }
+
+    /**
+     * Reopen a resolved or closed ticket.
+     */
+    public SupportTicket reopen(Long id, String actorName, String reason) {
+        SupportTicket ticket = findTicket(id);
+        String oldStatus = ticket.getStatus();
+        
+        transitionTo(ticket, "REOPENED");
+        ticket.setReopenedAt(LocalDateTime.now());
+        ticket.setCustomerReplyCount(0);
+        ticket = ticketRepository.save(ticket);
+        
+        // Log reopen
+        activityLogService.logReopen(ticket.getId(), null, actorName, reason);
+        
+        return ticket;
     }
 
     // ------------------------------------------------------------------
@@ -182,11 +297,18 @@ public class SupportTicketService {
 
     public TicketDto toDto(SupportTicket ticket) {
         return new TicketDto(
-                ticket.getId(), ticket.getSessionId(), ticket.getUserId(),
+                ticket.getId(), ticket.getTicketReference(), ticket.getSessionId(), ticket.getUserId(),
                 userEmail(ticket.getUserId()),
                 ticket.getSubject(), ticket.getDescription(), ticket.getStatus(),
-                ticket.getPriority(), ticket.getAssignedAgent(), ticket.getSentiment(),
+                ticket.getPriority(), ticket.getCategory(), ticket.getAssignedAgent(), ticket.getSentiment(),
                 ticket.getCreatedAt(), ticket.getUpdatedAt());
+    }
+
+    /**
+     * Count tickets by status.
+     */
+    public long countByStatus(String status) {
+        return ticketRepository.countByStatus(status);
     }
 
     private SupportTicket findTicket(Long id) {

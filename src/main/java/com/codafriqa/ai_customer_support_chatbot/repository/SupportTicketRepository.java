@@ -19,4 +19,25 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
     List<SupportTicket> findBySessionId(Long sessionId);
 
     Optional<SupportTicket> findFirstBySessionIdOrderByUpdatedAtDesc(Long sessionId);
+
+    /** Find ticket by unique reference. */
+    Optional<SupportTicket> findByTicketReference(String ticketReference);
+
+    /** Find tickets by assigned agent. */
+    List<SupportTicket> findByAssignedAgentOrderByUpdatedAtDesc(String assignedAgent);
+
+    /** Find tickets by status and priority. */
+    List<SupportTicket> findByStatusAndPriorityOrderByUpdatedAtDesc(String status, String priority);
+
+    /** Find tickets by category. */
+    List<SupportTicket> findByCategoryOrderByUpdatedAtDesc(String category);
+
+    /** Find tickets created after a specific date. */
+    List<SupportTicket> findByCreatedAtAfterOrderByCreatedAtDesc(java.time.LocalDateTime date);
+
+    /** Count tickets by status. */
+    long countByStatus(String status);
+
+    /** Count tickets by assigned agent. */
+    long countByAssignedAgent(String assignedAgent);
 }

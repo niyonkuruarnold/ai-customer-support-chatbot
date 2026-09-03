@@ -18,7 +18,7 @@ class EscalationServiceTest {
 
     // The real EscalationService needs collaborators, but we only test
     // the static phrase-matching logic so nulls are fine for this unit test.
-    private final EscalationService service = new EscalationService(null, null, null, null);
+    private final EscalationService service = new EscalationService(null, null, null, null, null);
 
     // ── Should trigger escalation (explicit live-support requests) ──
 

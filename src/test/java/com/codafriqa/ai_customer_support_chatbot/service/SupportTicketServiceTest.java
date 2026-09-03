@@ -37,13 +37,16 @@ class SupportTicketServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private ActivityLogService activityLogService;
+
     private final RecordingEmailService emailService = new RecordingEmailService();
 
     private SupportTicketService service;
 
     @BeforeEach
     void setUp() {
-        service = new SupportTicketService(ticketRepository, userRepository, emailService);
+        service = new SupportTicketService(ticketRepository, userRepository, emailService, activityLogService);
     }
 
     /**

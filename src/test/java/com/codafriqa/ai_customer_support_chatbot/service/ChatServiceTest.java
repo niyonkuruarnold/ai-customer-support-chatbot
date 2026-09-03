@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
+import com.codafriqa.ai_customer_support_chatbot.controller.WebSocketChatController;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatMessage;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatSession;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
@@ -70,6 +71,9 @@ class ChatServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private WebSocketChatController webSocketController;
+
     private final RecordingEscalationService escalationService = new RecordingEscalationService();
 
     private ChatService service;
@@ -79,7 +83,7 @@ class ChatServiceTest {
         boolean escalateCalled = false;
 
         RecordingEscalationService() {
-            super(null, null, null, null);
+            super(null, null, null, null, null);
         }
 
         @Override
@@ -130,7 +134,7 @@ class ChatServiceTest {
         RagService ragService = new RagService(null, null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, userService, "test-api-key");
+                escalationService, ragService, userService, webSocketController, "test-api-key");
     }
 
     private void stubInfrastructure(boolean escalated) {
@@ -183,7 +187,7 @@ class ChatServiceTest {
         RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository), "test-api-key");
+                escalationService, ragService, new UserService(userRepository), webSocketController, "test-api-key");
 
         var result = service.sendMessage("What is your return policy?", null);
 
@@ -254,7 +258,7 @@ class ChatServiceTest {
         RagService ragService = new RagService(new ThrowingVectorStore(), null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository), "test-api-key");
+                escalationService, ragService, new UserService(userRepository), webSocketController, "test-api-key");
 
         var result = service.sendMessage("What is your return policy?", null);
 
@@ -327,7 +331,7 @@ class ChatServiceTest {
         RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository), "test-api-key");
+                escalationService, ragService, new UserService(userRepository), webSocketController, "test-api-key");
 
         var result = service.sendMessage("What are the human agent support hours?", null);
 
@@ -356,7 +360,7 @@ class ChatServiceTest {
         RagService ragService = new RagService(new StubVectorStore(List.of(doc)), null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository), "test-api-key");
+                escalationService, ragService, new UserService(userRepository), webSocketController, "test-api-key");
 
         var result = service.sendMessage("I want to talk to a human agent", null);
 
@@ -381,7 +385,7 @@ class ChatServiceTest {
         RagService ragService = new RagService(new StubVectorStore(List.of()), null, null, "test-api-key");
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository), "test-api-key");
+                escalationService, ragService, new UserService(userRepository), webSocketController, "test-api-key");
 
         var result = service.sendMessage("I want to talk to a human agent", null);
 
@@ -403,7 +407,7 @@ class ChatServiceTest {
         RagService ragService = new RagService(new StubVectorStore(List.of()), null, null, null);
         service = new ChatService(
                 chatClientBuilder, sessionRepository, messageRepository,
-                escalationService, ragService, new UserService(userRepository), null);
+                escalationService, ragService, new UserService(userRepository), webSocketController, null);
 
         var result = service.sendMessage("Tell me about your products", null);
 

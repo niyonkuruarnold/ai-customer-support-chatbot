@@ -495,9 +495,71 @@ DELETE /api/admin/documents/{id}             - Remove document + its chunks from
 </details>
 
 <details>
+<summary><b>Feedback (CSAT)</b></summary>
+
+```
+POST   /api/chat/feedback                      - Submit feedback { sessionId, rating, comment }
+POST   /api/chat/conversations/{id}/feedback    - Submit conversation feedback
+GET    /api/chat/feedback/session/{id}          - Check if feedback exists
+```
+</details>
+
+<details>
+<summary><b>Ticket Management</b></summary>
+
+```
+POST   /api/tickets/{id}/status    - Update status { status, reason }
+POST   /api/tickets/{id}/priority  - Update priority { priority }
+POST   /api/tickets/{id}/assign    - Reassign agent { assignedAgent }
+POST   /api/tickets/{id}/notes     - Add note { content, isInternal }
+POST   /api/tickets/{id}/reopen    - Reopen ticket { reason }
+GET    /api/tickets/{id}/activity  - Get activity logs
+GET    /api/tickets/stats          - Get ticket statistics
+```
+</details>
+
+<details>
+<summary><b>Analytics</b></summary>
+
+```
+GET    /api/analytics/dashboard           - Dashboard metrics
+GET    /api/analytics/trend               - Daily trend data
+GET    /api/analytics/category/{category} - Metrics by category
+GET    /api/analytics/agent/{agent}       - Metrics by agent
+GET    /api/analytics/summary             - Quick summary
+```
+</details>
+
+<details>
+<summary><b>Export</b></summary>
+
+```
+GET    /api/export/tickets/csv   - Export tickets CSV
+GET    /api/export/tickets/pdf   - Export tickets PDF
+GET    /api/export/audit/csv     - Export audit logs CSV
+GET    /api/export/audit/pdf     - Export audit logs PDF
+```
+</details>
+
+<details>
+<summary><b>Audit Logs</b></summary>
+
+```
+GET    /api/audit                    - Get paginated audit logs
+GET    /api/audit/filter             - Get filtered logs
+GET    /api/audit/action/{type}      - Logs by action type
+GET    /api/audit/actor/{email}      - Logs by actor
+GET    /api/audit/resource/{type}/{id} - Logs for resource
+GET    /api/audit/recent             - Recent logs
+GET    /api/audit/stats              - Audit statistics
+```
+</details>
+
+<details>
 <summary><b>Health Checks</b></summary>
 
 ```
+GET    /api/health               - Backend health check
 GET    /test/health              - Server health status
 GET    /test/db-status           - Database connection check
 ```

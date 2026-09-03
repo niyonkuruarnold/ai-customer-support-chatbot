@@ -3,9 +3,9 @@
 [![CI Pipeline](https://github.com/niyonkuruarnold/ai-customer-support-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/niyonkuruarnold/ai-customer-support-chatbot/actions)
 [![JaCoCo Coverage](https://img.shields.io/badge/JaCoCo-coverage%20report-blue)](https://github.com/niyonkuruarnold/ai-customer-support-chatbot/actions/workflows/ci.yml)
 
-An intelligent customer support chatbot system built with Spring Boot 3.3+, PostgreSQL, and Spring AI. Features RAG (Retrieval-Augmented Generation) knowledge base retrieval, automated ticketing, and human agent escalation.
+An intelligent AI-powered customer support chatbot system for **CODAFRIQA** built with Spring Boot 3.3, Vue 3, PostgreSQL + pgvector, and Google Gemini API. Features RAG (Retrieval-Augmented Generation) knowledge base retrieval, real-time WebSocket messaging, automated ticketing, human agent escalation, analytics dashboards, and audit logging.
 
-**[📄 View Full Project Proposal](./doc/CODAFRIQA_AI_Chatbot_Proposal.pdf) | [📊 Week 2 Architecture](./doc/WEEK-2-ARCHITECTURE.md)**
+**[📄 Project Proposal](./doc/CODAFRIQA_AI_Chatbot_Proposal.pdf) | [🔒 Security Audit](./SECURITY_AUDIT.md) | [🧪 Test Suite](./tests/staging/README.md)**
 
 ---
 
@@ -389,18 +389,99 @@ Without SMTP credentials the app boots and send failures are logged as warnings 
 - `SupportTicketService` state machine: OPEN -> IN_PROGRESS -> RESOLVED -> CLOSED (ESCALATED accepted for handoff)
 - Automated email notifications via `JavaMailSender` (Mailtrap-style SMTP) on ticket **opened / updated / resolved**
 
-## Tech Stack
+## Architecture & Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Vue 3 (Composition API), Pinia, Tailwind CSS, Vite |
-| **Backend** | Spring Boot 3.3+, Spring Security, Spring Data JPA |
-| **Database** | PostgreSQL 15+ with pgvector extension |
-| **AI/ML** | Spring AI, OpenAI GPT-4, text-embedding-3-small (1536-dim) |
-| **Build** | Maven 3.8+, Node.js 20 |
+| **Frontend** | Vue 3 (Composition API), Pinia, Tailwind CSS, Vite, Chart.js |
+| **Backend** | Spring Boot 3.3+, Spring Security, Spring Data JPA, WebSocket STOMP |
+| **Database** | PostgreSQL 16+ with pgvector extension |
+| **AI/ML** | Spring AI, Google Gemini API (text + embeddings) |
+| **Real-Time** | STOMP over SockJS, @stomp/stompjs |
+| **Export** | OpenCSV (CSV), iText7 (PDF) |
+| **Build** | Maven 3.8+, Node.js 18+ |
 | **Container** | Docker & Docker Compose |
 | **CI/CD** | GitHub Actions (Java 21 + Node 20) |
 | **Java** | OpenJDK 17+ |
+
+### Prerequisites
+
+| Tool | Version | Purpose |
+|------|---------|--------|
+| Docker Engine | 20.10+ | Container runtime |
+| Docker Compose | v2.0+ | Service orchestration |
+| Java | 17+ | Backend development |
+| Maven | 3.8+ | Backend build |
+| Node.js | 18+ | Frontend development |
+| npm | 9+ | Frontend dependencies |
+
+### Architecture Diagram
+
+```mermaid
+graph LR
+    subgraph "Vue 3 Frontend"
+        CW["Chat Widget"]
+        AG["Agent Workspace"]
+        KB["Knowledge Base Admin"]
+        TD["Ticket Dashboard"]
+        AD["Analytics Dashboard"]
+        AL["Audit Log Viewer"]
+    end
+
+    subgraph "Spring Boot Backend"
+        CC["ChatController"]
+        AC["AgentController"]
+        KC["KnowledgeBaseController"]
+        TC["TicketController"]
+        AC2["AnalyticsController"]
+        ALC["AuditLogController"]
+        HC["HealthController"]
+        WC["WebSocketChatController"]
+    end
+
+    subgraph "Services"
+        CS["ChatService"]
+        RS["RagService"]
+        ES["EscalationService"]
+        AS["AgentService"]
+        KBS["KnowledgeBaseService"]
+        STS["SupportTicketService"]
+        ALS["AuditLogService"]
+        ANS["AnalyticsService"]
+        ENS["ExportService"]
+    end
+
+    subgraph "Data Layer"
+        JPA["Spring Data JPA"]
+        PGV[("PostgreSQL + pgvector")]
+    end
+
+    subgraph "External"
+        GEM["Google Gemini API"]
+    end
+
+    CW --> CC
+    AG --> AC
+    KB --> KC
+    TD --> TC
+    AD --> AC2
+    AL --> ALC
+    CC --> CS
+    CC --> ES
+    WC -->|"STOMP"| CW
+    WC -->|"STOMP"| AG
+    CS --> RS
+    CS --> GEM
+    RS --> JPA
+    KBS --> JPA
+    STS --> JPA
+    ALS --> JPA
+    JPA --> PGV
+    RS --> PGV
+    GEM --> CS
+    GEM --> ES
+    GEM --> KBS
+```
 
 ## Core Components
 
@@ -570,13 +651,46 @@ GET    /test/db-status           - Database connection check
 ### Option A: Docker Staging (Recommended)
 
 ```bash
-# Build and start all services
+# 1. Clone the repository
+git clone https://github.com/niyonkuruarnold/ai-customer-support-chatbot.git
+cd ai-customer-support-chatbot
+
+# 2. Copy environment template
+cp .env.example .env
+
+# 3. Edit .env and set your Gemini API key
+#    Get yours at: https://aistudio.google.com/apikey
+nano .env
+
+# 4. Build and start all services
 docker compose -f docker-compose.staging.yml up --build
+
+# 5. Wait for services to start (~30 seconds)
+sleep 30
+
+# 6. Verify all services are healthy
+docker compose -f docker-compose.staging.yml ps
+curl http://localhost:8080/api/health
+curl http://localhost/
 
 # Access the application
 # Frontend: http://localhost
 # Backend API: http://localhost:8080/api
-# Swagger UI: http://localhost:8080/swagger-ui.html
+# Health Check: http://localhost:8080/api/health/detail
+# WebSocket: ws://localhost:8080/ws
+```
+
+### Running Verification Tests
+
+```bash
+# Run all staging verification tests
+bash tests/staging/run-all.sh
+
+# Or run individual test parts
+bash tests/staging/run-all.sh --part 1    # Service healthcheck
+bash tests/staging/run-all.sh --part 2    # RBAC verification
+bash tests/staging/run-all.sh --part 3    # WebSocket E2E test
+bash tests/staging/run-all.sh --skip-ws   # Skip WebSocket test
 ```
 
 ### Option B: Local Development
@@ -1031,6 +1145,60 @@ Chat responses include RAG metadata — `ragUsed` (whether the answer was ground
 - [ ] WebSocket-based real-time updates (replace polling)
 - [ ] Multi-document ingestion from external sources (URLs, S3, etc.)
 - [ ] Embedding batching/retry tuning for large PDFs
+
+---
+
+## End-to-End Demonstration Script
+
+### Step 1: Customer RAG Chat
+1. Open `http://localhost` in browser
+2. Click "New Conversation" in the chat widget
+3. Ask: *"What is your return policy?"*
+4. Verify: AI returns grounded response with source citations
+5. Verify: Status badge shows "AI Assistant" (green)
+
+### Step 2: Live Agent Handoff
+1. Type: *"I need human support"*
+2. Verify: Badge changes to "Waiting for Agent" (amber)
+3. Open Agent Workspace (`?mode=agent`)
+4. Login as `admin` / `admin123`
+5. Verify: AI handoff summary displayed at top
+6. Click "Take over" on the escalated ticket
+7. Type a reply: *"Hello! I am here to assist you."*
+8. Verify: Customer sees reply instantly via WebSocket
+9. Verify: Badge changes to "Connected to Agent" (green)
+10. Toggle "Internal Note" mode, type: *"Reviewing account history"*
+11. Verify: Internal note appears only in agent view
+12. Verify: Internal note is hidden from customer chat
+
+### Step 3: Ticket Creation & Activity Log
+1. Verify: Escalation auto-created a ticket (status: OPEN)
+2. Open Ticket Dashboard (`?mode=tickets`)
+3. Click "📋 Timeline" on the ticket
+4. Verify: Activity log shows: CREATED → STATUS_CHANGE → ASSIGNMENT
+5. Update status to RESOLVED, add a note
+6. Verify: All changes logged in timeline
+
+### Step 4: Analytics Dashboard
+1. Open Analytics Dashboard (`?mode=analytics`)
+2. Verify: AI Containment Rate, Escalation Rate, CSAT scores displayed
+3. Verify: Chart.js visualizations render correctly
+4. Click "Export CSV" → verify file downloads
+5. Click "Export PDF" → verify formatted report generates
+
+### Step 5: Audit Log Review
+1. Open Audit Log Viewer (`?mode=audit`)
+2. Verify: Login events, ticket assignments, exports logged
+3. Filter by action type (LOGIN, TICKET_ASSIGN)
+4. Verify: IP address, timestamp, actor email recorded
+5. Verify: Log entries are read-only (no edit/delete)
+
+### Step 6: CSAT Feedback
+1. Customer clicks "End Chat" in chat widget
+2. Verify: 5-star rating modal appears
+3. Select 4 stars, add comment: *"Good support"*
+4. Click Submit
+5. Verify: Feedback persisted to database
 
 ---
 

@@ -2,69 +2,96 @@
 
 Automated verification tests for the AI Customer Support Chatbot staging environment.
 
-## Prerequisites
-
-- Docker & Docker Compose running the staging stack
-- `curl`, `nc` (netcat) available on PATH
-- Node.js 18+ (for WebSocket E2E tests)
-
 ## Quick Start
 
 ```bash
-# Start the staging environment
+# 1. Start staging environment
 docker compose -f docker-compose.staging.yml up --build -d
 
-# Wait for services to stabilize
+# 2. Wait for services
 sleep 30
 
-# Run all tests
+# 3. Run all tests
 bash tests/staging/run-all.sh
 
-# Or run individual parts
-bash tests/staging/run-all.sh --part 1    # Healthcheck only
-bash tests/staging/run-all.sh --part 2    # RBAC only
-bash tests/staging/run-all.sh --part 3    # WebSocket E2E only
-bash tests/staging/run-all.sh --skip-ws   # Skip WebSocket test
+# 4. Or run individual parts
+bash tests/staging/run-all.sh --part 1    # Healthcheck
+bash tests/staging/run-all.sh --part 2    # RBAC
+bash tests/staging/run-all.sh --part 3    # WebSocket E2E
+bash tests/staging/run-all.sh --skip-ws   # Skip WebSocket
+bash tests/staging/run-all.sh --wait 30   # Wait before running
 ```
 
 ## Test Parts
 
-### Part 1: Service Healthcheck (`01-service-healthcheck.sh`)
+### Part 1: Container Infrastructure & Health Audit
 
-Verifies all containers are running and healthy:
+**Script:** `01-service-healthcheck.sh`
 
 | Check | Method | Expected |
 |-------|--------|----------|
-| PostgreSQL connectivity | `pg_isready` / TCP | Accepting connections |
+| Docker container status | `docker compose ps` | All 3 containers running |
+| PostgreSQL connectivity | `pg_isready` + TCP | Accepting connections |
 | Backend health | `GET /api/health` | 200 OK |
-| Backend detail | `GET /api/health/detail` | 200 + DB status |
+| Backend detail | `GET /api/health/detail` | 200 + DB status UP |
 | Frontend accessibility | `GET /` | 200 HTML |
-| API proxy through Nginx | `GET /api/health` via frontend | 200 OK |
-| StagingDataSeeder | DB query `SELECT COUNT(*) FROM users` | 5 rows |
-| pgvector extension | DB query | Installed |
+| Nginx API proxy | `GET /api/health` via frontend | 200 OK |
+| Security headers | X-Frame-Options, X-Content-Type-Options | Present |
+| StagingDataSeeder | `SELECT COUNT(*) FROM users` | 5 rows |
+| Flyway migrations | `flyway_schema_history` check | No failed migrations |
+| Schema validation | All required columns verified | Exists |
+| pgvector extension | `pg_extension` query | Installed |
+| PermitAll endpoints | 6 endpoint smoke tests | 200 OK |
 
-### Part 2: Multi-Role RBAC (`02-rbac-verification.sh`)
+### Part 2: Multi-Role RBAC Verification
 
-Tests each seeded role's access permissions:
+**Script:** `02-rbac-verification.sh`
 
-| Role | Email | Password | Access |
-|------|-------|----------|--------|
-| Admin | `admin` | `admin123` | Full access (KB, audit, tickets, analytics, exports) |
-| Manager | `admin` | `admin123` | Analytics, exports, agent workspace |
-| Agent | `agent` | `agent123` | Agent workspace, tickets (KB blocked) |
-| Customer | (no auth) | — | Chat only (agent/admin blocked) |
+Tests HTTP Basic auth with captured credentials for each role:
 
-### Part 3: WebSocket E2E (`03-websocket-e2e-test.js`)
+| Role | Credentials | Token | Access |
+|------|-------------|-------|--------|
+| **Admin** | `admin:admin123` | `Basic YWRtaW46YWRtaW4xMjM=` | Full (KB, audit, analytics, exports, agent) |
+| **Manager** | `admin:admin123` | `Basic YWRtaW46YWRtaW4xMjM=` | Analytics, exports, audit (KB admin restricted) |
+| **Agent** | `agent:agent123` | `Basic YWdlbnQ6YWdlbnQxMjM=` | Agent workspace, tickets (KB blocked 403) |
+| **Editor** | `agent:agent123` | `Basic YWdlbnQ6YWdlbnQxMjM=` | Agent workspace (ROLE_AGENT mapping) |
+| **Customer** | (anonymous) | — | Chat only (401 on agent/admin) |
 
-Simulates real-time chat between Customer and Agent:
+**Endpoints tested per role:**
+- Admin: 15 endpoints (all pass 200)
+- Manager: 8 endpoints (analytics + exports)
+- Agent: 12 endpoints (workspace OK, KB blocked 403)
+- Editor: 3 endpoints (agent workspace)
+- Customer: 10 endpoints (chat permitAll, agent/admin blocked 401)
 
-1. Customer connects → sends message → session created
-2. Customer requests escalation → status change broadcast
-3. Agent connects → takes over conversation
-4. Agent sends **internal note** → verified NOT on customer topic
-5. Agent sends **public message** → verified received by customer
-6. CSAT feedback submission
-7. Message history integrity check
+**Edge cases tested:**
+- Wrong password → 401
+- Unknown user → 401
+- Empty auth header → 401
+- Cross-role access (agent → admin KB) → 403
+
+### Part 3: WebSocket E2E Messaging Test
+
+**Script:** `03-websocket-e2e-test.js`
+
+Simulates live multi-user interaction:
+
+| Step | Action | Assertion |
+|------|--------|-----------|
+| 3.1 | Customer connects to `/ws` | WebSocket connected |
+| 3.1 | Send message via REST | Session created |
+| 3.2 | Request escalation | Badge → "Waiting for Agent" |
+| 3.3 | Gemini summary generated | Summary in WebSocket/REST |
+| 3.4 | Agent connects | WebSocket connected |
+| 3.4 | Agent subscribes to topics | `/topic/chat/` + `/topic/agent/` |
+| 3.4 | Agent takes over | REST 200 OK |
+| 3.5 | Agent sends internal note | Private channel receives it |
+| 3.5 | **ASSERT: No leak to customer** | Customer topic: CLEAN |
+| 3.5 | **ASSERT: No leak in history** | Message history: CLEAN |
+| 3.6 | Agent sends public reply | Customer receives instantly |
+| 3.7 | Badge update | "Connected to Agent" confirmed |
+| 3.8 | CSAT feedback | Rating persisted (5 stars) |
+| 3.9 | Connection stability | Both WS still alive |
 
 ## Environment Variables
 
@@ -77,36 +104,33 @@ Simulates real-time chat between Customer and Agent:
 | `POSTGRES_USER` | `postgres` | PostgreSQL user |
 | `POSTGRES_DB` | `ai_customer_support_chatbot` | Database name |
 | `WS_URL` | `http://localhost:8080` | WebSocket URL |
-| `TEST_TIMEOUT` | `30000` | Global test timeout (ms) |
+| `TEST_TIMEOUT` | `45000` | Global test timeout (ms) |
+
+## Prerequisites
+
+- Docker & Docker Compose
+- `curl`, `nc` (netcat)
+- Node.js 18+ (for Part 3 WebSocket tests)
 
 ## CI/CD Integration
 
 ```yaml
-# GitHub Actions example
-- name: Run staging tests
+# GitHub Actions
+- name: Staging verification
   run: |
     docker compose -f docker-compose.staging.yml up --build -d
     sleep 30
-    bash tests/staging/run-all.sh
+    bash tests/staging/run-all.sh --skip-ws
   env:
     BACKEND_URL: http://localhost:8080
-    FRONTEND_URL: http://localhost:80
 ```
 
 ## Troubleshooting
 
-**Backend not reachable:**
-- Check `docker compose -f docker-compose.staging.yml logs backend`
-- Ensure GEMINI_API_KEY is set in `.env`
-
-**PostgreSQL connection refused:**
-- Check `docker compose -f docker-compose.staging.yml logs postgres`
-- Verify port 5432 is not in use
-
-**WebSocket test fails:**
-- Ensure Node.js 18+ is installed: `node --version`
-- Check WebSocket endpoint: `curl http://localhost:8080/ws/info`
-
-**RBAC tests show unexpected 401/403:**
-- Verify StagingDataSeeder ran: check user count in DB
-- Check SecurityConfig for endpoint mappings
+| Issue | Fix |
+|-------|-----|
+| Backend not reachable | `docker compose -f docker-compose.staging.yml logs backend` |
+| PostgreSQL connection refused | Check port 5432: `lsof -i :5432` |
+| WebSocket test fails | Verify Node.js: `node --version` |
+| RBAC shows unexpected 401 | Check StagingDataSeeder: query users table |
+| Seed data missing | Verify `StagingDataSeeder` ran: check app logs |

@@ -37,6 +37,9 @@ public class Conversation {
     @Column(name = "csat_submitted_at")
     private LocalDateTime csatSubmittedAt;
 
+    @Column(name = "escalation_summary", columnDefinition = "TEXT")
+    private String escalationSummary;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -88,6 +91,9 @@ public class Conversation {
 
     public LocalDateTime getCsatSubmittedAt() { return csatSubmittedAt; }
     public void setCsatSubmittedAt(LocalDateTime csatSubmittedAt) { this.csatSubmittedAt = csatSubmittedAt; }
+
+    public String getEscalationSummary() { return escalationSummary; }
+    public void setEscalationSummary(String escalationSummary) { this.escalationSummary = escalationSummary; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

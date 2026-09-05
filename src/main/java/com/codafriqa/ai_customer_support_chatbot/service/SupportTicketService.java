@@ -181,7 +181,8 @@ public class SupportTicketService {
      * 
      * State Machine:
      * NEW -> OPEN
-     * OPEN -> PENDING_CUSTOMER, PENDING_INTERNAL, IN_PROGRESS, RESOLVED, CLOSED
+     * OPEN -> PENDING_CUSTOMER, PENDING_INTERNAL, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED
+     * ESCALATED -> IN_PROGRESS (agent takes over escalated ticket)
      * PENDING_CUSTOMER -> OPEN, IN_PROGRESS, RESOLVED, CLOSED (on customer reply)
      * PENDING_INTERNAL -> OPEN, IN_PROGRESS, RESOLVED, CLOSED (when internal work done)
      * IN_PROGRESS -> PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED
@@ -208,7 +209,8 @@ public class SupportTicketService {
             case "PENDING_INTERNAL" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
                                     from.equals("PENDING_CUSTOMER") || from.equals("REOPENED");
             case "IN_PROGRESS" -> from.equals("OPEN") || from.equals("PENDING_CUSTOMER") || 
-                                from.equals("PENDING_INTERNAL") || from.equals("REOPENED");
+                                from.equals("PENDING_INTERNAL") || from.equals("REOPENED") || 
+                                from.equals("ESCALATED");
             case "RESOLVED" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
                              from.equals("PENDING_CUSTOMER") || from.equals("PENDING_INTERNAL");
             case "CLOSED" -> from.equals("RESOLVED");

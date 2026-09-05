@@ -54,7 +54,7 @@ const statusLabel = {
   OPEN: 'Open',
   PENDING_CUSTOMER: 'Pending Customer',
   PENDING_INTERNAL: 'Pending Internal',
-  IN_PROGRESS: 'In Progress',
+  IN_PROGRESS: 'In progress',
   ESCALATED: 'Escalated',
   RESOLVED: 'Resolved',
   CLOSED: 'Closed',

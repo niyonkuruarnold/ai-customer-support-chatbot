@@ -39,8 +39,8 @@ const chatStatus = computed(() => {
 
 const badgeLabel = computed(() => {
   switch (chatStatus.value) {
-    case 'waiting': return 'Waiting for Agent'
-    case 'connected': return 'Connected to Agent'
+    case 'waiting':
+    case 'connected': return 'Agent Active'
     default: return 'AI Assistant'
   }
 })
@@ -71,8 +71,8 @@ const dotClass = computed(() => {
 
 const subtitleText = computed(() => {
   switch (chatStatus.value) {
-    case 'waiting': return 'Connecting you to an agent…'
-    case 'connected': return 'A human agent is with you'
+    case 'waiting':
+    case 'connected': return 'AI paused'
     default: return 'Online · replies instantly'
   }
 })
@@ -84,7 +84,8 @@ async function handleSubmit() {
 }
 
 function handleEndChat() {
-  if (store.sessionId && !feedbackSubmitted.value) {
+  open.value = false
+  if (store.sessionId && store.hasMessages && !feedbackSubmitted.value) {
     showFeedbackModal.value = true
   } else {
     store.closeAndResetConversation()
@@ -125,6 +126,14 @@ onBeforeUnmount(() => store.stopPolling())
 </script>
 
 <template>
+  <!-- Feedback Modal (outside v-if/v-else so it renders independently) -->
+  <ChatFeedbackModal
+    :session-id="store.sessionId"
+    :visible="showFeedbackModal"
+    @submitted="handleFeedbackSubmitted"
+    @close="handleFeedbackClose"
+  />
+
   <!-- Collapsed: launcher bubble -->
   <button
     v-if="!open"
@@ -157,14 +166,6 @@ onBeforeUnmount(() => store.stopPolling())
       <span class="size-2 animate-ping rounded-full bg-amber-400"></span>
     </span>
   </button>
-
-  <!-- Feedback Modal -->
-  <ChatFeedbackModal
-    :session-id="store.sessionId"
-    :visible="showFeedbackModal"
-    @submitted="handleFeedbackSubmitted"
-    @close="handleFeedbackClose"
-  />
 
   <!-- Expanded: chat panel -->
   <section

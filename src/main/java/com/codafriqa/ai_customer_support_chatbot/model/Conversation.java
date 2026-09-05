@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 
 /**
  * Conversation entity representing a customer support conversation.
+ * Includes CSAT feedback fields for post-conversation satisfaction surveys.
  */
 @Entity
 @Table(name = "conversations")

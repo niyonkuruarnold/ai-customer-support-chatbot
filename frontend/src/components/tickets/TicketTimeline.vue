@@ -170,6 +170,7 @@ const filteredLogs = computed(() => {
 </template>
 
 <style scoped>
+@reference "../../style.css";
 .ticket-timeline {
   @apply p-4;
 }

@@ -26,6 +26,15 @@ public class Conversation {
     @Column(nullable = false)
     private String status = "ACTIVE";
 
+    @Column(name = "csat_score")
+    private Integer csatScore;
+
+    @Column(name = "csat_comment", columnDefinition = "TEXT")
+    private String csatComment;
+
+    @Column(name = "csat_submitted_at")
+    private LocalDateTime csatSubmittedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -68,6 +77,15 @@ public class Conversation {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public Integer getCsatScore() { return csatScore; }
+    public void setCsatScore(Integer csatScore) { this.csatScore = csatScore; }
+
+    public String getCsatComment() { return csatComment; }
+    public void setCsatComment(String csatComment) { this.csatComment = csatComment; }
+
+    public LocalDateTime getCsatSubmittedAt() { return csatSubmittedAt; }
+    public void setCsatSubmittedAt(LocalDateTime csatSubmittedAt) { this.csatSubmittedAt = csatSubmittedAt; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

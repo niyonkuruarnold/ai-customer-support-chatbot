@@ -24,8 +24,9 @@ public class Conversation {
     @Column(name = "agent_id")
     private Long agentId;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status = "ACTIVE";
+    private ConversationStatus status = ConversationStatus.AI_ASSISTANT;
 
     @Column(name = "csat_score")
     private Integer csatScore;
@@ -76,8 +77,8 @@ public class Conversation {
     public Long getAgentId() { return agentId; }
     public void setAgentId(Long agentId) { this.agentId = agentId; }
 
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    public ConversationStatus getStatus() { return status; }
+    public void setStatus(ConversationStatus status) { this.status = status; }
 
     public Integer getCsatScore() { return csatScore; }
     public void setCsatScore(Integer csatScore) { this.csatScore = csatScore; }

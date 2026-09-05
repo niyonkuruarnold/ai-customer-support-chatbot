@@ -281,3 +281,14 @@ watch(messages, async () => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.animate-bounce {
+  animation: bounce 0.6s infinite;
+  display: inline-block;
+}
+</style>

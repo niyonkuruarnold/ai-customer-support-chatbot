@@ -369,6 +369,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
+@reference "../../style.css";
 .audit-log-viewer {
   @apply p-6;
 }

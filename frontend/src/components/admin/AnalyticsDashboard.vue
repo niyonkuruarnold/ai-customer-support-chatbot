@@ -391,6 +391,7 @@ onMounted(loadMetrics)
 </template>
 
 <style scoped>
+@reference "../../style.css";
 .analytics-dashboard {
   @apply p-6;
 }

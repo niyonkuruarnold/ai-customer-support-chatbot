@@ -14,11 +14,13 @@
     "@stomp/stompjs": "^7.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "axios": "^1.19.0",
+    "chart.js": "^4.5.1",
     "markdown-it": "^15.0.0",
     "pinia": "^4.0.3",
     "sockjs-client": "^1.6.1",
     "tailwindcss": "^4.3.3",
-    "vue": "^3.5.40"
+    "vue": "^3.5.40",
+    "vue-chartjs": "^5.3.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",

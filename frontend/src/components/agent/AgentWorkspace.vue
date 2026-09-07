@@ -5,6 +5,8 @@ import { useWebSocket } from '../../composables/useWebSocket'
 import AgentTicketList from './AgentTicketList.vue'
 import KnowledgeBaseManager from '../admin/KnowledgeBaseManager.vue'
 import ChatMessage from '../ChatMessage.vue'
+import TicketTimeline from '../tickets/TicketTimeline.vue'
+import TicketStatusControl from '../tickets/TicketStatusControl.vue'
 import axios from 'axios'
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
@@ -194,6 +196,34 @@ onUnmounted(() => {
 
 // Auto-scroll on new messages
 watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
+
+// ── Timeline sidebar state ───────────────────────────────────────────
+const showTimeline = ref(false)
+const timelineRef = ref(null)
+
+function toggleTimeline() {
+  showTimeline.value = !showTimeline.value
+}
+
+function handleTimelineLoaded(count) {
+  // Optionally log or track timeline count
+}
+
+function handleStatusChanged(ticketId, newStatus) {
+  // Refresh the active ticket and timeline
+  if (store.activeTicket && store.activeTicket.id === ticketId) {
+    store.openTicket(ticketId)
+  }
+  // Refresh the timeline feed
+  if (timelineRef.value && timelineRef.value.refresh) {
+    timelineRef.value.refresh()
+  }
+}
+
+function handleStatusError(ticketId, message) {
+  // Could wire this up to a toast system later
+  console.error(`Status update failed for ticket ${ticketId}:`, message)
+}
 </script>
 
 <template>
@@ -262,6 +292,18 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
 
         <!-- Conversation panel -->
         <section class="flex min-w-0 flex-1 flex-col">
+
+        <!-- Timeline toggle button (shown when a ticket is active) -->
+        <button
+          v-if="store.activeTicket"
+          type="button"
+          @click="toggleTimeline"
+          class="absolute right-4 top-2 z-20 flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium shadow-sm transition"
+          :class="showTimeline ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'"
+          aria-label="Toggle activity timeline"
+        >
+          📋 Timeline
+        </button>
           <template v-if="store.activeTicket">
             <!-- Ticket header -->
             <div class="border-b border-slate-200 bg-white px-4 py-3">
@@ -346,7 +388,7 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
             </div>
           </template>
 
-          <!-- Empty state -->
+          <!-- Empty state when no ticket selected -->
           <div v-else class="flex flex-1 items-center justify-center p-6">
             <div class="text-center">
               <div class="mx-auto flex size-14 items-center justify-center rounded-2xl bg-slate-200 text-2xl">🎧</div>
@@ -355,6 +397,43 @@ watch(messages, () => { nextTick(scrollToBottom) }, { deep: true })
             </div>
           </div>
         </section>
+
+        <!-- Timeline sidebar panel -->
+        <aside
+          v-if="showTimeline && store.activeTicket"
+          class="w-80 shrink-0 overflow-y-auto border-l border-slate-200 bg-white sm:w-96"
+        >
+          <div class="border-b border-slate-200 px-4 py-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-slate-700">Activity</h3>
+              <button
+                type="button"
+                @click="showTimeline = false"
+                class="text-slate-400 hover:text-slate-600"
+                aria-label="Close timeline"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <!-- Status control widget -->
+          <div class="border-b border-slate-200 px-4 py-3">
+            <TicketStatusControl
+              :ticket-id="store.activeTicket.id"
+              :status="store.activeTicket.status"
+              @status-change="handleStatusChanged"
+              @error="handleStatusError"
+            />
+          </div>
+
+          <!-- Activity timeline -->
+          <TicketTimeline
+            ref="timelineRef"
+            :ticket-id="store.activeTicket.id"
+            @loaded="handleTimelineLoaded"
+          />
+        </aside>
       </div>
 
       <KnowledgeBaseManager v-else class="flex min-h-0 flex-1" />

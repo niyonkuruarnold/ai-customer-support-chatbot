@@ -198,7 +198,7 @@ export function reopenTicket(id, reason = null) {
 }
 
 /**
- * Get ticket activity logs (timeline).
+ * Get ticket activity logs (timeline) — legacy endpoint.
  * GET /api/tickets/{id}/activity?customerOnly=false
  * @param {number} id
  * @param {boolean} customerOnly
@@ -206,6 +206,46 @@ export function reopenTicket(id, reason = null) {
 export function getTicketActivityLogs(id, customerOnly = false) {
   return request(
     async () => (await adminClient.get(`/tickets/${id}/activity`, { params: { customerOnly } })).data,
+  )
+}
+
+// ─── V1 Ticket Lifecycle API (Section 6.5) ──────────────────────────
+
+/**
+ * Get ticket activity logs via the v1 timeline endpoint.
+ * GET /api/v1/tickets/{id}/activity-logs?customerOnly=false
+ * @param {number} id
+ * @param {boolean} [customerOnly]
+ */
+export function getTicketActivityLogsV1(id, customerOnly = false) {
+  return request(
+    async () => (await adminClient.get(`/v1/tickets/${id}/activity-logs`, { params: { customerOnly } })).data,
+  )
+}
+
+/**
+ * Update ticket status via the v1 state-machine endpoint.
+ * PATCH /api/v1/tickets/{id}/status
+ * @param {number} id
+ * @param {string} status
+ * @param {string} [reason]
+ */
+export function updateTicketStatusV1(id, status, reason = null) {
+  const body = { status }
+  if (reason) body.reason = reason
+  return request(
+    async () => (await adminClient.patch(`/v1/tickets/${id}/status`, body)).data,
+  )
+}
+
+/**
+ * Create a ticket from conversation context.
+ * POST /api/v1/tickets
+ * @param {object} payload - { userId, sessionId, subject, description, conversationId?, category?, priority? }
+ */
+export function createTicket(payload) {
+  return request(
+    async () => (await adminClient.post('/v1/tickets', payload)).data,
   )
 }
 

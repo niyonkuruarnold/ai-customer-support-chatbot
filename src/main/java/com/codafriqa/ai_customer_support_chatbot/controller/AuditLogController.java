@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.controller;
 
+import com.codafriqa.ai_customer_support_chatbot.dto.AuditLogDto;
 import com.codafriqa.ai_customer_support_chatbot.model.AuditLog;
 import com.codafriqa.ai_customer_support_chatbot.service.AuditLogService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,12 +37,12 @@ public class AuditLogController {
      */
     @Operation(summary = "Get audit logs", description = "Get paginated audit logs.")
     @GetMapping
-    public ResponseEntity<Page<AuditLog>> getAuditLogs(
+    public ResponseEntity<Page<AuditLogDto>> getAuditLogs(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        
+
         Pageable pageable = PageRequest.of(page, size);
-        return ResponseEntity.ok(auditLogService.getAllLogs(pageable));
+        return ResponseEntity.ok(auditLogService.getAllLogDtos(pageable));
     }
 
     /**

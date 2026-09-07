@@ -258,3 +258,117 @@ export function getTicketStats() {
     async () => (await adminClient.get('/tickets/stats')).data,
   )
 }
+
+// ─── V1 Analytics API (Section 6.9) ────────────────────────────────
+
+/**
+ * Get Section 6.9 operational metrics.
+ * GET /api/v1/analytics/metrics?startDate=...&endDate=...
+ * @param {object} opts - { startDate, endDate }
+ */
+export function getOperationalMetrics({ startDate, endDate } = {}) {
+  const params = {}
+  if (startDate) params.startDate = startDate
+  if (endDate) params.endDate = endDate
+  return request(
+    async () => (await adminClient.get('/v1/analytics/metrics', { params })).data,
+  )
+}
+
+/**
+ * Get daily trend data.
+ * GET /api/analytics/trend?startDate=...&endDate=...
+ */
+export function getDailyTrend({ startDate, endDate } = {}) {
+  const params = {}
+  if (startDate) params.startDate = startDate
+  if (endDate) params.endDate = endDate
+  return request(
+    async () => (await adminClient.get('/analytics/trend', { params })).data,
+  )
+}
+
+// ─── V1 Analytics Export (Section 6.9/6.10) ────────────────────────
+
+/**
+ * Export analytics as CSV via v1 endpoint.
+ * GET /api/v1/analytics/export/csv?startDate=...&endDate=...
+ */
+export function exportAnalyticsCsv({ startDate, endDate } = {}) {
+  const params = {}
+  if (startDate) params.startDate = startDate
+  if (endDate) params.endDate = endDate
+  return request(
+    async () => {
+      const response = await adminClient.get('/v1/analytics/export/csv', {
+        params,
+        responseType: 'blob',
+      })
+      downloadBlob(response.data, `analytics_report_${Date.now()}.csv`)
+    },
+  )
+}
+
+/**
+ * Export analytics as PDF via v1 endpoint.
+ * GET /api/v1/analytics/export/pdf?startDate=...&endDate=...
+ */
+export function exportAnalyticsPdf({ startDate, endDate } = {}) {
+  const params = {}
+  if (startDate) params.startDate = startDate
+  if (endDate) params.endDate = endDate
+  return request(
+    async () => {
+      const response = await adminClient.get('/v1/analytics/export/pdf', {
+        params,
+        responseType: 'blob',
+      })
+      downloadBlob(response.data, `analytics_report_${Date.now()}.pdf`)
+    },
+  )
+}
+
+// ─── V1 Audit Log API (Section 6.10) ───────────────────────────────
+
+/**
+ * Get audit logs via the admin v1 endpoint.
+ * GET /api/v1/admin/audit-logs?page=0&size=50
+ */
+export function getAuditLogsV1(page = 0, size = 50) {
+  return request(
+    async () => (await adminClient.get('/v1/admin/audit-logs', { params: { page, size } })).data,
+  )
+}
+
+/**
+ * Get filtered audit logs via the v1 endpoint.
+ * GET /api/v1/audit/filter?actionType=...&actorEmail=...
+ */
+export function getFilteredAuditLogsV1({
+  actionType, actorEmail, actorRole, resourceType, startDate, endDate, page = 0, size = 50,
+} = {}) {
+  const params = { page, size }
+  if (actionType) params.actionType = actionType
+  if (actorEmail) params.actorEmail = actorEmail
+  if (actorRole) params.actorRole = actorRole
+  if (resourceType) params.resourceType = resourceType
+  if (startDate) params.startDate = startDate
+  if (endDate) params.endDate = endDate
+  return request(
+    async () => (await adminClient.get('/v1/audit/filter', { params })).data,
+  )
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────
+
+/** Trigger a browser file download from a Blob. */
+function downloadBlob(blob, filename) {
+  const url = window.URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob]))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}

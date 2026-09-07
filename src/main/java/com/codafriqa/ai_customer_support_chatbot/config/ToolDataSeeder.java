@@ -44,8 +44,8 @@ public class ToolDataSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ToolDataSeeder.class);
 
-    /** Email that matches the in-memory admin in {@code SecurityConfig}. */
-    private static final String ADMIN_EMAIL = "admin";
+    /** Email that matches the seeded admin user in {@code StagingDataSeeder}. */
+    private static final String ADMIN_EMAIL = "admin@codafriqa.local";
 
     /** Maximum number of attempts to seed if the DB isn't ready yet. */
     private static final int MAX_RETRIES = 3;

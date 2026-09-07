@@ -162,6 +162,41 @@ public class ExportService {
         return baos.toByteArray();
     }
 
+    // ─── Analytics CSV Export (Section 6.9) ──────────────────────────
+
+    /**
+     * Export analytics performance summary as a CSV.
+     * Columns: Metric, Value
+     */
+    public String exportAnalyticsToCsv(
+            double aiContainmentRate, double humanEscalationRate,
+            Double avgCsatRating, double avgFirstResponseTimeMinutes,
+            long totalConversations, long escalatedConversations) {
+        StringWriter writer = new StringWriter();
+        try (CSVWriter csvWriter = new CSVWriter(writer)) {
+            csvWriter.writeNext(new String[]{"Metric", "Value"});
+            csvWriter.writeNext(new String[]{"Total Conversations", String.valueOf(totalConversations)});
+            csvWriter.writeNext(new String[]{"AI Resolved Conversations",
+                    String.valueOf(totalConversations - escalatedConversations)});
+            csvWriter.writeNext(new String[]{"Escalated Conversations",
+                    String.valueOf(escalatedConversations)});
+            csvWriter.writeNext(new String[]{"AI Containment Rate (%)",
+                    String.format("%.2f", aiContainmentRate)});
+            csvWriter.writeNext(new String[]{"Human Escalation Rate (%)",
+                    String.format("%.2f", humanEscalationRate)});
+            csvWriter.writeNext(new String[]{"Average CSAT Rating",
+                    avgCsatRating != null ? String.format("%.2f", avgCsatRating) : "N/A"});
+            csvWriter.writeNext(new String[]{"Average First Response Time (min)",
+                    String.format("%.2f", avgFirstResponseTimeMinutes)});
+            csvWriter.writeNext(new String[]{"Generated At",
+                    LocalDateTime.now().format(DATE_FORMAT)});
+        } catch (Exception e) {
+            log.error("Failed to export analytics to CSV: {}", e.getMessage());
+            throw new RuntimeException("Analytics CSV export failed", e);
+        }
+        return writer.toString();
+    }
+
     private Cell createCell(String content) {
         return new Cell().add(new Paragraph(content != null ? content : "").setFontSize(8)).setPadding(4);
     }

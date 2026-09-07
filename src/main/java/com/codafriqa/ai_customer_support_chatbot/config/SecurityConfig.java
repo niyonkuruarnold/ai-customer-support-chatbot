@@ -52,7 +52,19 @@ public class SecurityConfig {
                 .roles("AGENT")
                 .build();
 
-        return new InMemoryUserDetailsManager(admin, agent);
+        var manager = User.builder()
+                .username("manager")
+                .password(encoder.encode("manager123"))
+                .roles("MANAGER")
+                .build();
+
+        var editor = User.builder()
+                .username("editor")
+                .password(encoder.encode("editor123"))
+                .roles("EDITOR")
+                .build();
+
+        return new InMemoryUserDetailsManager(admin, agent, manager, editor);
     }
 
     @Bean

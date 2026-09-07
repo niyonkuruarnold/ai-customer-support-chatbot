@@ -43,6 +43,21 @@ public class AuditLogService {
     }
 
     /**
+     * Log a user login event with actor role.
+     */
+    @Transactional
+    public void logLogin(Long actorId, String actorEmail, String actorRole, String ipAddress, boolean success) {
+        try {
+            AuditLog auditLog = AuditLog.login(actorId, actorEmail, ipAddress, success);
+            auditLog.setActorRole(actorRole);
+            auditLogRepository.save(auditLog);
+            log.debug("Logged login event for user: {} (role={})", actorEmail, actorRole);
+        } catch (Exception e) {
+            log.error("Failed to log login event for user {}: {}", actorEmail, e.getMessage());
+        }
+    }
+
+    /**
      * Log a user logout event.
      */
     @Transactional
@@ -135,7 +150,15 @@ public class AuditLogService {
     }
 
     /**
-     * Get all audit logs with pagination.
+     * Get all audit logs as DTOs with pagination.
+     */
+    public Page<com.codafriqa.ai_customer_support_chatbot.dto.AuditLogDto> getAllLogDtos(Pageable pageable) {
+        return auditLogRepository.findAllByOrderByTimestampDesc(pageable)
+            .map(com.codafriqa.ai_customer_support_chatbot.dto.AuditLogDto::fromEntity);
+    }
+
+    /**
+     * Get all audit logs with pagination (entity).
      */
     public Page<AuditLog> getAllLogs(Pageable pageable) {
         return auditLogRepository.findAllByOrderByTimestampDesc(pageable);

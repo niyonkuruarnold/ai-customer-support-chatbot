@@ -23,6 +23,9 @@ public class AuditLog {
     @Column(nullable = false)
     private String actorEmail;
 
+    /** Role of the actor (ADMIN, AGENT, CUSTOMER, SYSTEM). */
+    private String actorRole;
+
     /** Type of action performed. */
     @Column(nullable = false)
     private String actionType; // LOGIN, LOGOUT, ROLE_UPDATE, TICKET_ASSIGN, DATA_EXPORT, etc.
@@ -130,6 +133,7 @@ public class AuditLog {
     public Long getId() { return id; }
     public Long getActorId() { return actorId; }
     public String getActorEmail() { return actorEmail; }
+    public String getActorRole() { return actorRole; }
     public String getActionType() { return actionType; }
     public String getDescription() { return description; }
     public String getIpAddress() { return ipAddress; }
@@ -143,6 +147,7 @@ public class AuditLog {
     // Setters for mutable fields only
     public void setActorId(Long actorId) { this.actorId = actorId; }
     public void setActorEmail(String actorEmail) { this.actorEmail = actorEmail; }
+    public void setActorRole(String actorRole) { this.actorRole = actorRole; }
     public void setActionType(String actionType) { this.actionType = actionType; }
     public void setDescription(String description) { this.description = description; }
     public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }

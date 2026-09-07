@@ -1,9 +1,13 @@
 package com.codafriqa.ai_customer_support_chatbot.controller;
 
+import com.codafriqa.ai_customer_support_chatbot.dto.AuditLogDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.KnowledgeChunkDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.KnowledgeDocumentDto;
 import com.codafriqa.ai_customer_support_chatbot.dto.KnowledgeTextRequestDto;
+import com.codafriqa.ai_customer_support_chatbot.service.AuditLogService;
 import com.codafriqa.ai_customer_support_chatbot.service.KnowledgeBaseService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import jakarta.validation.Valid;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,11 +36,14 @@ public class AdminController {
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final EmbeddingModel embeddingModel;
+    private final AuditLogService auditLogService;
 
     public AdminController(KnowledgeBaseService knowledgeBaseService,
-                           EmbeddingModel embeddingModel) {
+                           EmbeddingModel embeddingModel,
+                           AuditLogService auditLogService) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.embeddingModel = embeddingModel;
+        this.auditLogService = auditLogService;
     }
 
     /**
@@ -170,6 +177,20 @@ public class AdminController {
                     "exceptionType", e.getClass().getSimpleName()
             ));
         }
+    }
+
+    // ─── Section 6.10: System Audit Logs ─────────────────────────────
+
+    /**
+     * Get system audit logs — admin-only.
+     * GET /api/v1/admin/audit-logs?page=0&size=50
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/audit-logs")
+    public ResponseEntity<Page<AuditLogDto>> getAuditLogs(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(auditLogService.getAllLogDtos(PageRequest.of(page, size)));
     }
 
     private static String defaultTitle(String fileName) {

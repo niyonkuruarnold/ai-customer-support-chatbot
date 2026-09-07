@@ -1,9 +1,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { closeTicket, fetchTickets, updateTicketStatus, updateTicketAgent, deleteTicket, getTicketActivityLogs, reopenTicket } from '../../api/admin'
+import { closeTicket, fetchTickets, updateTicketStatus, updateTicketAgent, deleteTicket, reopenTicket } from '../../api/admin'
 import { useAgentStore } from '../../stores/agent'
 import { useToasts } from '../../composables/useToasts'
 import TicketTimeline from '../tickets/TicketTimeline.vue'
+import TicketStatusControl from '../tickets/TicketStatusControl.vue'
 
 const props = defineProps({
   /** When true, the parent shell provides the header and auth gate. */
@@ -38,8 +39,6 @@ const closingId = ref(null)
 const updatingId = ref(null)
 const deletingId = ref(null)
 const selectedTicket = ref(null)
-const activityLogs = ref([])
-const loadingActivity = ref(false)
 
 const isAuthenticated = computed(() => agentStore.authenticated)
 
@@ -264,17 +263,31 @@ function formatDate(value) {
       })
 }
 
-async function selectTicket(ticket) {
+const timelineRef = ref(null)
+
+function selectTicket(ticket) {
+  // The TicketTimeline component fetches its own data on mount / when ticketId changes.
   selectedTicket.value = ticket
-  loadingActivity.value = true
-  try {
-    activityLogs.value = await getTicketActivityLogs(ticket.id)
-  } catch (err) {
-    console.error('Failed to load activity logs:', err)
-    activityLogs.value = []
-  } finally {
-    loadingActivity.value = false
+}
+
+function handleStatusChangedFromControl(ticketId, newStatus) {
+  // Update the ticket in the list
+  const ticket = tickets.value.find((t) => t.id === ticketId)
+  if (ticket) ticket.status = newStatus
+  // Refresh the selected ticket's activity timeline
+  if (selectedTicket.value && selectedTicket.value.id === ticketId) {
+    selectedTicket.value = { ...selectedTicket.value, status: newStatus }
+    selectTicket(selectedTicket.value)
   }
+  // Refresh the timeline feed if visible
+  if (timelineRef.value && timelineRef.value.refresh) {
+    timelineRef.value.refresh()
+  }
+  push('success', `Ticket #${ticketId} status → ${statusLabel[newStatus] || newStatus}.`)
+}
+
+function handleStatusControlError(ticketId, message) {
+  push('error', message)
 }
 
 async function handleReopen(ticket) {
@@ -683,11 +696,11 @@ async function handleReopen(ticket) {
             </div>
           </div>
 
-          <!-- Ticket Activity Timeline -->
+          <!-- Ticket Activity Timeline + Status Control -->
           <section v-if="selectedTicket" class="mt-6 rounded-xl border border-slate-200 bg-white p-4">
             <div class="flex items-center justify-between">
               <h3 class="text-sm font-semibold text-slate-800">
-                Activity Timeline — Ticket #{{ selectedTicket.id }}
+                Ticket #{{ selectedTicket.id }} — {{ selectedTicket.subject || 'Details' }}
               </h3>
               <button
                 type="button"
@@ -697,14 +710,26 @@ async function handleReopen(ticket) {
                 Close
               </button>
             </div>
-            
-            <div v-if="loadingActivity" class="py-8 text-center text-sm text-slate-400">
-              Loading activity...
+
+            <!-- Status Control Widget -->
+            <div class="mt-4 max-w-sm">
+              <TicketStatusControl
+                :ticket-id="selectedTicket.id"
+                :status="selectedTicket.status"
+                @status-change="handleStatusChangedFromControl"
+                @error="handleStatusControlError"
+              />
             </div>
-            
+
+            <div v-if="loadingActivity" class="py-8 text-center text-sm text-slate-400">
+              Loading activity timeline…
+            </div>
+
+            <!-- Self-fetching timeline component -->
             <TicketTimeline
               v-else
-              :logs="activityLogs"
+              ref="timelineRef"
+              :ticket-id="selectedTicket.id"
               class="mt-4"
             />
           </section>

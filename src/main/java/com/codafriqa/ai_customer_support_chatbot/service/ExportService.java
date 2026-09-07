@@ -6,7 +6,6 @@ import com.codafriqa.ai_customer_support_chatbot.repository.AuditLogRepository;
 import com.codafriqa.ai_customer_support_chatbot.repository.SupportTicketRepository;
 import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceRgb;
-import com.itextpdf.kernel.font.PdfFontFactory;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
 import com.itextpdf.layout.Document;
@@ -26,9 +25,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
-/**
- * Service for generating CSV and PDF exports of ticket and audit log data.
- */
 @Service
 public class ExportService {
 
@@ -43,29 +39,21 @@ public class ExportService {
         this.auditLogRepository = auditLogRepository;
     }
 
-    // ─── CSV Export ─────────────────────────────────────────────────────
-
-    /**
-     * Export tickets to CSV format.
-     */
     public String exportTicketsToCsv(List<SupportTicket> tickets) {
         StringWriter writer = new StringWriter();
         try (CSVWriter csvWriter = new CSVWriter(writer)) {
-            // Header
             csvWriter.writeNext(new String[]{
                 "ID", "Reference", "Subject", "Description", "Status", "Priority",
                 "Category", "Assigned Agent", "Sentiment", "Created At", "Updated At"
             });
-
-            // Data rows
             for (SupportTicket ticket : tickets) {
                 csvWriter.writeNext(new String[]{
                     String.valueOf(ticket.getId()),
                     ticket.getTicketReference(),
                     ticket.getSubject(),
                     ticket.getDescription(),
-                    ticket.getStatus(),
-                    ticket.getPriority(),
+                    ticket.getStatus() != null ? ticket.getStatus().name() : "",
+                    ticket.getPriority() != null ? ticket.getPriority().name() : "",
                     ticket.getCategory(),
                     ticket.getAssignedAgent() != null ? ticket.getAssignedAgent() : "",
                     ticket.getSentiment() != null ? ticket.getSentiment() : "",
@@ -80,19 +68,13 @@ public class ExportService {
         return writer.toString();
     }
 
-    /**
-     * Export audit logs to CSV format.
-     */
     public String exportAuditLogsToCsv(List<AuditLog> logs) {
         StringWriter writer = new StringWriter();
         try (CSVWriter csvWriter = new CSVWriter(writer)) {
-            // Header
             csvWriter.writeNext(new String[]{
                 "ID", "Actor Email", "Action Type", "Description", "IP Address",
                 "Resource Type", "Resource ID", "Success", "Timestamp"
             });
-
-            // Data rows
             for (AuditLog auditLog : logs) {
                 csvWriter.writeNext(new String[]{
                     String.valueOf(auditLog.getId()),
@@ -113,63 +95,33 @@ public class ExportService {
         return writer.toString();
     }
 
-    // ─── PDF Export ─────────────────────────────────────────────────────
-
-    /**
-     * Export tickets to PDF format.
-     */
     public byte[] exportTicketsToPdf(List<SupportTicket> tickets) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try {
             PdfWriter writer = new PdfWriter(baos);
             PdfDocument pdfDoc = new PdfDocument(writer);
             Document document = new Document(pdfDoc);
-
-            // Title
-            document.add(new Paragraph("Support Tickets Report")
-                .setFontSize(18)
-                .setBold()
-                .setFontColor(ColorConstants.DARK_GRAY)
-                .setMarginBottom(20));
-
-            // Generated timestamp
-            document.add(new Paragraph("Generated: " + LocalDateTime.now().format(DATE_FORMAT))
-                .setFontSize(10)
-                .setFontColor(ColorConstants.GRAY)
-                .setMarginBottom(20));
-
-            // Create table
+            document.add(new Paragraph("Support Tickets Report").setFontSize(18).setBold().setFontColor(ColorConstants.DARK_GRAY).setMarginBottom(20));
+            document.add(new Paragraph("Generated: " + LocalDateTime.now().format(DATE_FORMAT)).setFontSize(10).setFontColor(ColorConstants.GRAY).setMarginBottom(20));
             float[] columnWidths = {1, 2, 3, 2, 1.5f, 1.5f, 2};
-            Table table = new Table(UnitValue.createPercentArray(columnWidths))
-                .useAllAvailableWidth()
-                .setHorizontalAlignment(HorizontalAlignment.CENTER);
-
-            // Header row
-            DeviceRgb headerBg = new DeviceRgb(79, 70, 229); // Indigo
+            Table table = new Table(UnitValue.createPercentArray(columnWidths)).useAllAvailableWidth().setHorizontalAlignment(HorizontalAlignment.CENTER);
+            DeviceRgb headerBg = new DeviceRgb(79, 70, 229);
             String[] headers = {"ID", "Reference", "Subject", "Status", "Priority", "Category", "Agent"};
             for (String header : headers) {
-                Cell cell = new Cell()
-                    .add(new Paragraph(header).setFontSize(9).setBold())
-                    .setBackgroundColor(headerBg)
-                    .setFontColor(ColorConstants.WHITE)
-                    .setPadding(5);
+                Cell cell = new Cell().add(new Paragraph(header).setFontSize(9).setBold()).setBackgroundColor(headerBg).setFontColor(ColorConstants.WHITE).setPadding(5);
                 table.addHeaderCell(cell);
             }
-
-            // Data rows
             for (SupportTicket ticket : tickets) {
                 table.addCell(createCell(String.valueOf(ticket.getId())));
                 table.addCell(createCell(ticket.getTicketReference()));
                 table.addCell(createCell(truncate(ticket.getSubject(), 40)));
-                table.addCell(createCell(ticket.getStatus()));
-                table.addCell(createCell(ticket.getPriority()));
+                table.addCell(createCell(ticket.getStatus() != null ? ticket.getStatus().name() : ""));
+                table.addCell(createCell(ticket.getPriority() != null ? ticket.getPriority().name() : ""));
                 table.addCell(createCell(ticket.getCategory()));
-                table.addCell(createCell(ticket.getAssignedAgent() != null ? ticket.getAssignedAgent() : "—"));
+                table.addCell(createCell(ticket.getAssignedAgent() != null ? ticket.getAssignedAgent() : "-"));
             }
-
             document.add(table);
             document.close();
-
         } catch (Exception e) {
             log.error("Failed to export tickets to PDF: {}", e.getMessage());
             throw new RuntimeException("PDF export failed", e);
@@ -177,61 +129,32 @@ public class ExportService {
         return baos.toByteArray();
     }
 
-    /**
-     * Export audit logs to PDF format.
-     */
     public byte[] exportAuditLogsToPdf(List<AuditLog> logs) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try {
             PdfWriter writer = new PdfWriter(baos);
             PdfDocument pdfDoc = new PdfDocument(writer);
             Document document = new Document(pdfDoc);
-
-            // Title
-            document.add(new Paragraph("Audit Log Report")
-                .setFontSize(18)
-                .setBold()
-                .setFontColor(ColorConstants.DARK_GRAY)
-                .setMarginBottom(20));
-
-            // Generated timestamp
-            document.add(new Paragraph("Generated: " + LocalDateTime.now().format(DATE_FORMAT))
-                .setFontSize(10)
-                .setFontColor(ColorConstants.GRAY)
-                .setMarginBottom(20));
-
-            // Create table
+            document.add(new Paragraph("Audit Log Report").setFontSize(18).setBold().setFontColor(ColorConstants.DARK_GRAY).setMarginBottom(20));
+            document.add(new Paragraph("Generated: " + LocalDateTime.now().format(DATE_FORMAT)).setFontSize(10).setFontColor(ColorConstants.GRAY).setMarginBottom(20));
             float[] columnWidths = {1, 2, 2, 3, 1.5f, 2};
-            Table table = new Table(UnitValue.createPercentArray(columnWidths))
-                .useAllAvailableWidth()
-                .setHorizontalAlignment(HorizontalAlignment.CENTER);
-
-            // Header row
-            DeviceRgb headerBg = new DeviceRgb(79, 70, 229); // Indigo
+            Table table = new Table(UnitValue.createPercentArray(columnWidths)).useAllAvailableWidth().setHorizontalAlignment(HorizontalAlignment.CENTER);
+            DeviceRgb headerBg = new DeviceRgb(79, 70, 229);
             String[] headers = {"ID", "Actor", "Action", "Description", "Success", "Timestamp"};
             for (String header : headers) {
-                Cell cell = new Cell()
-                    .add(new Paragraph(header).setFontSize(9).setBold())
-                    .setBackgroundColor(headerBg)
-                    .setFontColor(ColorConstants.WHITE)
-                    .setPadding(5);
+                Cell cell = new Cell().add(new Paragraph(header).setFontSize(9).setBold()).setBackgroundColor(headerBg).setFontColor(ColorConstants.WHITE).setPadding(5);
                 table.addHeaderCell(cell);
             }
-
-            // Data rows
             for (AuditLog auditLog : logs) {
                 table.addCell(createCell(String.valueOf(auditLog.getId())));
                 table.addCell(createCell(auditLog.getActorEmail()));
                 table.addCell(createCell(auditLog.getActionType()));
                 table.addCell(createCell(truncate(auditLog.getDescription(), 50)));
-                table.addCell(createCell(auditLog.isSuccess() ? "✓" : "✗"));
-                table.addCell(createCell(auditLog.getTimestamp() != null 
-                    ? auditLog.getTimestamp().format(DATE_FORMAT) : ""));
+                table.addCell(createCell(auditLog.isSuccess() ? "Y" : "N"));
+                table.addCell(createCell(auditLog.getTimestamp() != null ? auditLog.getTimestamp().format(DATE_FORMAT) : ""));
             }
-
             document.add(table);
             document.close();
-
         } catch (Exception e) {
             log.error("Failed to export audit logs to PDF: {}", e.getMessage());
             throw new RuntimeException("PDF export failed", e);
@@ -239,12 +162,8 @@ public class ExportService {
         return baos.toByteArray();
     }
 
-    // ─── Helper Methods ─────────────────────────────────────────────────
-
     private Cell createCell(String content) {
-        return new Cell()
-            .add(new Paragraph(content != null ? content : "").setFontSize(8))
-            .setPadding(4);
+        return new Cell().add(new Paragraph(content != null ? content : "").setFontSize(8)).setPadding(4);
     }
 
     private String truncate(String text, int maxLength) {

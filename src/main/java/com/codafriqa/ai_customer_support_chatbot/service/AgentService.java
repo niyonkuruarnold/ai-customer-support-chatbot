@@ -103,14 +103,14 @@ public class AgentService {
     private AgentTicketDto toListDto(SupportTicket t, String lastMessage) {
         return new AgentTicketDto(
                 t.getId(), t.getSessionId(), t.getUserId(), userEmail(t.getUserId()), t.getSubject(),
-                t.getDescription(), t.getStatus(), t.getPriority(), t.getAssignedAgent(),
+                t.getDescription(), t.getStatus().name(), t.getPriority().name(), t.getAssignedAgent(),
                 t.getAiSummary(), t.getSentiment(), lastMessage, t.getCreatedAt(), t.getUpdatedAt());
     }
 
     private AgentTicketDetailDto toDetailDto(SupportTicket t, List<ChatMessageDto> messages) {
         return new AgentTicketDetailDto(
                 t.getId(), t.getSessionId(), t.getUserId(), userEmail(t.getUserId()), t.getSubject(),
-                t.getDescription(), t.getStatus(), t.getPriority(), t.getAssignedAgent(),
+                t.getDescription(), t.getStatus().name(), t.getPriority().name(), t.getAssignedAgent(),
                 t.getAiSummary(), t.getSentiment(), t.getCreatedAt(), t.getUpdatedAt(),
                 messages, t.getInternalNotes());
     }

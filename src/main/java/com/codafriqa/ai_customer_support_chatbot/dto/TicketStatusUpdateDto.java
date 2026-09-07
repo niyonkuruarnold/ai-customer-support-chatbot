@@ -8,9 +8,9 @@ import jakarta.validation.constraints.Pattern;
  */
 public record TicketStatusUpdateDto(
     @NotBlank(message = "Status is required")
-    @Pattern(regexp = "^(NEW|OPEN|PENDING_CUSTOMER|PENDING_INTERNAL|IN_PROGRESS|RESOLVED|CLOSED|REOPENED)$",
-             message = "Invalid status. Must be one of: NEW, OPEN, PENDING_CUSTOMER, PENDING_INTERNAL, IN_PROGRESS, RESOLVED, CLOSED, REOPENED")
+    @Pattern(regexp = "^(NEW|OPEN|PENDING_CUSTOMER|PENDING_INTERNAL|RESOLVED|CLOSED|REOPENED)$",
+             message = "Invalid status. Must be one of: NEW, OPEN, PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED, REOPENED")
     String status,
-    
+
     String reason  // Optional reason for the status change
 ) {}

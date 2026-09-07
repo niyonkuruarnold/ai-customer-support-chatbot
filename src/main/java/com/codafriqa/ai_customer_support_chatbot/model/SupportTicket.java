@@ -20,11 +20,18 @@ public class SupportTicket {
     @Column(nullable = false, unique = true)
     private String ticketReference;
 
+    /** UUID used as the canonical external reference ID for the ticket. */
+    @Column(nullable = false, unique = true)
+    private String referenceId;
+
     @Column(nullable = false)
     private Long userId;
 
     @Column(nullable = false)
     private Long sessionId;
+
+    /** Optional link to a conversation entity. */
+    private Long conversationId;
 
     @Column(nullable = false)
     private String subject;
@@ -33,21 +40,26 @@ public class SupportTicket {
     private String description;
 
     /**
-     * Ticket status lifecycle:
-     * NEW -> OPEN -> PENDING_CUSTOMER/PENDING_INTERNAL -> RESOLVED -> CLOSED
-     * Also supports REOPENED from CLOSED/RESOLVED.
+     * Ticket status lifecycle (enforced by state machine):
+     * NEW -> OPEN -> PENDING_CUSTOMER / PENDING_INTERNAL -> RESOLVED -> CLOSED
+     * RESOLVED -> REOPENED -> OPEN
      */
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status = "NEW"; // NEW, OPEN, PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED, REOPENED
+    private TicketStatus status = TicketStatus.NEW;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String priority = "MEDIUM"; // LOW, MEDIUM, HIGH, URGENT
+    private TicketPriority priority = TicketPriority.MEDIUM;
 
     /** Category for ticket classification (e.g., BILLING, TECHNICAL, GENERAL). */
     private String category = "GENERAL";
 
     /** Username of the agent who took over this ticket (null until takeover). */
     private String assignedAgent;
+
+    /** User ID of the assigned agent. */
+    private Long assignedAgentId;
 
     /** AI-generated handoff summary (bullet points) produced on escalation. */
     @Column(columnDefinition = "TEXT")
@@ -84,6 +96,7 @@ public class SupportTicket {
         this.subject = subject;
         this.description = description;
         this.ticketReference = generateTicketReference();
+        this.referenceId = UUID.randomUUID().toString();
     }
 
     /** Generate a unique ticket reference like TICKET-ABC123. */
@@ -96,6 +109,9 @@ public class SupportTicket {
         LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
+        if (this.referenceId == null) {
+            this.referenceId = UUID.randomUUID().toString();
+        }
     }
 
     @PreUpdate
@@ -103,8 +119,16 @@ public class SupportTicket {
         this.updatedAt = LocalDateTime.now();
     }
 
+    // --- Getters and Setters ---
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public String getTicketReference() { return ticketReference; }
+    public void setTicketReference(String ticketReference) { this.ticketReference = ticketReference; }
+
+    public String getReferenceId() { return referenceId; }
+    public void setReferenceId(String referenceId) { this.referenceId = referenceId; }
 
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
@@ -112,29 +136,32 @@ public class SupportTicket {
     public Long getSessionId() { return sessionId; }
     public void setSessionId(Long sessionId) { this.sessionId = sessionId; }
 
+    public Long getConversationId() { return conversationId; }
+    public void setConversationId(Long conversationId) { this.conversationId = conversationId; }
+
     public String getSubject() { return subject; }
     public void setSubject(String subject) { this.subject = subject; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
 
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    public TicketStatus getStatus() { return status; }
+    public void setStatus(TicketStatus status) { this.status = status; }
 
-    public String getPriority() { return priority; }
-    public void setPriority(String priority) { this.priority = priority; }
+    public TicketPriority getPriority() { return priority; }
+    public void setPriority(TicketPriority priority) { this.priority = priority; }
 
     public String getAssignedAgent() { return assignedAgent; }
     public void setAssignedAgent(String assignedAgent) { this.assignedAgent = assignedAgent; }
+
+    public Long getAssignedAgentId() { return assignedAgentId; }
+    public void setAssignedAgentId(Long assignedAgentId) { this.assignedAgentId = assignedAgentId; }
 
     public String getAiSummary() { return aiSummary; }
     public void setAiSummary(String aiSummary) { this.aiSummary = aiSummary; }
 
     public String getSentiment() { return sentiment; }
     public void setSentiment(String sentiment) { this.sentiment = sentiment; }
-
-    public String getTicketReference() { return ticketReference; }
-    public void setTicketReference(String ticketReference) { this.ticketReference = ticketReference; }
 
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }

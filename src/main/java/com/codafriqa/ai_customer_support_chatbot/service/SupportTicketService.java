@@ -3,6 +3,8 @@ package com.codafriqa.ai_customer_support_chatbot.service;
 import com.codafriqa.ai_customer_support_chatbot.dto.TicketDto;
 import com.codafriqa.ai_customer_support_chatbot.exception.ResourceNotFoundException;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketPriority;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketStatus;
 import com.codafriqa.ai_customer_support_chatbot.model.User;
 import com.codafriqa.ai_customer_support_chatbot.repository.SupportTicketRepository;
 import com.codafriqa.ai_customer_support_chatbot.repository.UserRepository;
@@ -18,15 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Ticket lifecycle management: the single source of truth for status
- * transitions (OPEN -&gt; IN_PROGRESS -&gt; RESOLVED -&gt; CLOSED, with ESCALATED
- * as a handoff flavor of OPEN/IN_PROGRESS) and for the automated customer
- * emails fired on opened / updated / resolved events.
- *
- * Illegal transitions throw IllegalArgumentException (mapped to a 400 by the
- * global exception handler) instead of corrupting the ticket state.
- */
 @Service
 public class SupportTicketService {
 
@@ -45,153 +38,95 @@ public class SupportTicketService {
         this.activityLogService = activityLogService;
     }
 
-    // ------------------------------------------------------------------
-    // Lifecycle (state machine)
-    // ------------------------------------------------------------------
-
-    /** Create a new ticket in OPEN status and notify the customer. */
     public SupportTicket open(Long userId, Long sessionId, String subject, String description) {
         SupportTicket ticket = new SupportTicket(userId, sessionId, subject, description);
-        ticket.setStatus("OPEN");
+        ticket.setStatus(TicketStatus.OPEN);
         ticket = ticketRepository.save(ticket);
-        
-        // Log ticket creation
-        activityLogService.logCustom(ticket.getId(), userId, "System", "CREATED",
+        activityLogService.logCustom(ticket.getId(), userId, "CUSTOMER", "CREATED",
             "Ticket created: " + subject, true);
-        
         emailService.sendTicketNotification(
                 userEmail(userId), ticket, EmailNotificationService.TicketEvent.OPENED);
         return ticket;
     }
 
-    /** Assign an open/escalated ticket to an agent -> IN_PROGRESS (+ email). */
     public SupportTicket takeOver(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
-        String oldStatus = ticket.getStatus();
+        TicketStatus oldStatus = ticket.getStatus();
         String oldAssignee = ticket.getAssignedAgent();
-        
-        transitionTo(ticket, "IN_PROGRESS");
+        transitionTo(ticket, TicketStatus.OPEN);
         ticket.setAssignedAgent(agentName);
         ticket = ticketRepository.save(ticket);
-        
-        // Log status change and assignment
-        activityLogService.logStatusChange(ticket.getId(), null, agentName, oldStatus, "IN_PROGRESS");
-        activityLogService.logAssignment(ticket.getId(), null, agentName, oldAssignee, agentName);
-        
+        activityLogService.logStatusChange(ticket.getId(), null, "AGENT", oldStatus.name(), "OPEN");
+        activityLogService.logAssignment(ticket.getId(), null, "AGENT", oldAssignee, agentName);
         emailService.sendTicketNotification(
                 userEmail(ticket.getUserId()), ticket, EmailNotificationService.TicketEvent.UPDATED);
         return ticket;
     }
 
-    /** Resolve an open/escalated/in-progress ticket -> RESOLVED (+ email). */
     public SupportTicket resolve(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
-        String oldStatus = ticket.getStatus();
-        
-        transitionTo(ticket, "RESOLVED");
-        if (ticket.getAssignedAgent() == null) {
-            ticket.setAssignedAgent(agentName);
-        }
+        TicketStatus oldStatus = ticket.getStatus();
+        transitionTo(ticket, TicketStatus.RESOLVED);
+        if (ticket.getAssignedAgent() == null) ticket.setAssignedAgent(agentName);
         ticket = ticketRepository.save(ticket);
-        
-        // Log status change
-        activityLogService.logStatusChange(ticket.getId(), null, agentName, oldStatus, "RESOLVED");
-        
+        activityLogService.logStatusChange(ticket.getId(), null, "AGENT", oldStatus.name(), "RESOLVED");
         emailService.sendTicketNotification(
                 userEmail(ticket.getUserId()), ticket, EmailNotificationService.TicketEvent.RESOLVED);
         return ticket;
     }
 
-    /** Close a resolved ticket -> CLOSED (terminal; no email per spec). */
     public SupportTicket close(Long id) {
         SupportTicket ticket = findTicket(id);
-        String oldStatus = ticket.getStatus();
-        
-        transitionTo(ticket, "CLOSED");
+        TicketStatus oldStatus = ticket.getStatus();
+        transitionTo(ticket, TicketStatus.CLOSED);
         ticket.setClosedAt(LocalDateTime.now());
         ticket = ticketRepository.save(ticket);
-        
-        // Log status change
-        activityLogService.logStatusChange(ticket.getId(), null, "System", oldStatus, "CLOSED");
-        
+        activityLogService.logStatusChange(ticket.getId(), null, "SYSTEM", oldStatus.name(), "CLOSED");
         return ticket;
     }
 
-    /**
-     * Admin override: set any valid status on a ticket.
-     * Allowed target statuses: NEW, OPEN, PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED, REOPENED.
-     * Throws IllegalArgumentException for invalid targets.
-     */
     public SupportTicket updateStatus(Long id, String targetStatus) {
         SupportTicket ticket = findTicket(id);
         String normalized = targetStatus.trim().toUpperCase(Locale.ROOT);
-        if (!List.of("NEW", "OPEN", "PENDING_CUSTOMER", "PENDING_INTERNAL", 
-                     "RESOLVED", "CLOSED", "REOPENED").contains(normalized)) {
+        TicketStatus newStatus;
+        try {
+            newStatus = TicketStatus.valueOf(normalized);
+        } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid ticket status: " + normalized);
         }
-        
-        String oldStatus = ticket.getStatus();
-        ticket.setStatus(normalized);
-        
-        // Handle reopen logic
-        if ("REOPENED".equals(normalized)) {
+        TicketStatus oldStatus = ticket.getStatus();
+        ticket.setStatus(newStatus);
+        if (newStatus == TicketStatus.REOPENED) {
             ticket.setReopenedAt(LocalDateTime.now());
             ticket.setCustomerReplyCount(0);
         }
-        
-        // Handle pending customer status
-        if ("PENDING_CUSTOMER".equals(normalized)) {
+        if (newStatus == TicketStatus.PENDING_CUSTOMER) {
             ticket.setCustomerReplyCount(0);
         }
-        
         SupportTicket saved = ticketRepository.save(ticket);
-        
-        // Log status change
-        activityLogService.logStatusChange(saved.getId(), null, "Admin", oldStatus, normalized);
-        
+        activityLogService.logStatusChange(saved.getId(), null, "ADMIN", oldStatus.name(), newStatus.name());
         emailService.sendTicketNotification(
                 userEmail(ticket.getUserId()), saved, EmailNotificationService.TicketEvent.UPDATED);
         return saved;
     }
 
-    /** Admin: reassign a ticket to a different agent. */
     public SupportTicket updateAssignedAgent(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
         String oldAssignee = ticket.getAssignedAgent();
-        
         ticket.setAssignedAgent(agentName);
         ticket = ticketRepository.save(ticket);
-        
-        // Log assignment change
-        activityLogService.logAssignment(ticket.getId(), null, "Admin", oldAssignee, agentName);
-        
+        activityLogService.logAssignment(ticket.getId(), null, "ADMIN", oldAssignee, agentName);
         return ticket;
     }
 
-    /** Admin: permanently delete a ticket and its associated notes. */
     @PreAuthorize("hasRole('ADMIN')")
     public void deleteTicket(Long id) {
         SupportTicket ticket = findTicket(id);
         ticketRepository.delete(ticket);
     }
 
-    /**
-     * Enforce the ticket state machine. Throws IllegalArgumentException on
-     * any transition not allowed by the graph below.
-     * 
-     * State Machine:
-     * NEW -> OPEN
-     * OPEN -> PENDING_CUSTOMER, PENDING_INTERNAL, IN_PROGRESS, ESCALATED, RESOLVED, CLOSED
-     * ESCALATED -> IN_PROGRESS (agent takes over escalated ticket)
-     * PENDING_CUSTOMER -> OPEN, IN_PROGRESS, RESOLVED, CLOSED (on customer reply)
-     * PENDING_INTERNAL -> OPEN, IN_PROGRESS, RESOLVED, CLOSED (when internal work done)
-     * IN_PROGRESS -> PENDING_CUSTOMER, PENDING_INTERNAL, RESOLVED, CLOSED
-     * RESOLVED -> CLOSED, REOPENED
-     * CLOSED -> REOPENED
-     * REOPENED -> OPEN, IN_PROGRESS, PENDING_CUSTOMER, PENDING_INTERNAL
-     */
-    private void transitionTo(SupportTicket ticket, String target) {
-        String current = ticket.getStatus() == null ? "NEW" : ticket.getStatus().toUpperCase(Locale.ROOT);
+    private void transitionTo(SupportTicket ticket, TicketStatus target) {
+        TicketStatus current = ticket.getStatus() == null ? TicketStatus.NEW : ticket.getStatus();
         if (!canTransition(current, target)) {
             throw new IllegalArgumentException(
                     "Invalid ticket status transition: " + current + " -> " + target
@@ -200,76 +135,47 @@ public class SupportTicketService {
         ticket.setStatus(target);
     }
 
-    private static boolean canTransition(String from, String to) {
+    private static boolean canTransition(TicketStatus from, TicketStatus to) {
         return switch (to) {
-            case "OPEN" -> from.equals("NEW") || from.equals("PENDING_CUSTOMER") || 
-                          from.equals("PENDING_INTERNAL") || from.equals("REOPENED");
-            case "PENDING_CUSTOMER" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
-                                     from.equals("PENDING_INTERNAL") || from.equals("REOPENED");
-            case "PENDING_INTERNAL" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
-                                    from.equals("PENDING_CUSTOMER") || from.equals("REOPENED");
-            case "IN_PROGRESS" -> from.equals("OPEN") || from.equals("PENDING_CUSTOMER") || 
-                                from.equals("PENDING_INTERNAL") || from.equals("REOPENED") || 
-                                from.equals("ESCALATED");
-            case "RESOLVED" -> from.equals("OPEN") || from.equals("IN_PROGRESS") || 
-                             from.equals("PENDING_CUSTOMER") || from.equals("PENDING_INTERNAL");
-            case "CLOSED" -> from.equals("RESOLVED");
-            case "REOPENED" -> from.equals("RESOLVED") || from.equals("CLOSED");
+            case OPEN -> from == TicketStatus.NEW || from == TicketStatus.PENDING_CUSTOMER
+                          || from == TicketStatus.PENDING_INTERNAL || from == TicketStatus.REOPENED;
+            case PENDING_CUSTOMER -> from == TicketStatus.OPEN || from == TicketStatus.RESOLVED;
+            case PENDING_INTERNAL -> from == TicketStatus.OPEN || from == TicketStatus.RESOLVED;
+            case RESOLVED -> from == TicketStatus.OPEN || from == TicketStatus.PENDING_CUSTOMER
+                             || from == TicketStatus.PENDING_INTERNAL;
+            case CLOSED -> from == TicketStatus.RESOLVED;
+            case REOPENED -> from == TicketStatus.RESOLVED || from == TicketStatus.CLOSED;
             default -> false;
         };
     }
 
-    /**
-     * Update ticket priority with logging.
-     */
     public SupportTicket updatePriority(Long id, String newPriority) {
         SupportTicket ticket = findTicket(id);
-        String oldPriority = ticket.getPriority();
-        
-        if (!List.of("LOW", "MEDIUM", "HIGH", "URGENT").contains(newPriority.toUpperCase(Locale.ROOT))) {
+        TicketPriority oldPriority = ticket.getPriority();
+        TicketPriority targetPriority;
+        try {
+            targetPriority = TicketPriority.valueOf(newPriority.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid priority: " + newPriority);
         }
-        
-        ticket.setPriority(newPriority.toUpperCase(Locale.ROOT));
+        ticket.setPriority(targetPriority);
         ticket = ticketRepository.save(ticket);
-        
-        // Log priority change
-        activityLogService.logPriorityChange(ticket.getId(), null, "System", oldPriority, newPriority);
-        
+        activityLogService.logPriorityChange(ticket.getId(), null, "SYSTEM",
+            oldPriority.name(), targetPriority.name());
         return ticket;
     }
 
-    /**
-     * Reopen a resolved or closed ticket.
-     */
     public SupportTicket reopen(Long id, String actorName, String reason) {
         SupportTicket ticket = findTicket(id);
-        String oldStatus = ticket.getStatus();
-        
-        transitionTo(ticket, "REOPENED");
+        TicketStatus oldStatus = ticket.getStatus();
+        transitionTo(ticket, TicketStatus.REOPENED);
         ticket.setReopenedAt(LocalDateTime.now());
         ticket.setCustomerReplyCount(0);
         ticket = ticketRepository.save(ticket);
-        
-        // Log reopen
         activityLogService.logReopen(ticket.getId(), null, actorName, reason);
-        
         return ticket;
     }
 
-    // ------------------------------------------------------------------
-    // Admin dashboard: filtering + pagination
-    // ------------------------------------------------------------------
-
-    /**
-     * List tickets with optional filters (status, priority, assignedAgentId)
-     * and Spring Data pagination/sorting.
-     *
-     * @param assignedAgentId filters by the assigned agent's user account;
-     *                        resolved to that account's email (the value
-     *                        stored in assignedAgent). Unknown ids match
-     *                        nothing.
-     */
     public Page<TicketDto> list(String status, String priority, Long assignedAgentId, Pageable pageable) {
         Specification<SupportTicket> spec = buildSpec(status, priority, assignedAgentId);
         return ticketRepository.findAll(spec, pageable).map(this::toDto);
@@ -279,19 +185,14 @@ public class SupportTicketService {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (status != null && !status.isBlank()) {
-                predicates.add(cb.equal(root.get("status"), status.trim().toUpperCase(Locale.ROOT)));
+                predicates.add(cb.equal(root.get("status"), TicketStatus.valueOf(status.trim().toUpperCase(Locale.ROOT))));
             }
             if (priority != null && !priority.isBlank()) {
-                predicates.add(cb.equal(root.get("priority"), priority.trim().toUpperCase(Locale.ROOT)));
+                predicates.add(cb.equal(root.get("priority"), TicketPriority.valueOf(priority.trim().toUpperCase(Locale.ROOT))));
             }
             if (assignedAgentId != null) {
-                String agentEmail = userRepository.findById(assignedAgentId)
-                        .map(User::getEmail)
-                        .orElse(null);
-                // Unknown id -> match nothing (no ticket is assigned to it)
-                predicates.add(agentEmail == null
-                        ? cb.disjunction()
-                        : cb.equal(root.get("assignedAgent"), agentEmail));
+                String agentEmail = userRepository.findById(assignedAgentId).map(User::getEmail).orElse(null);
+                predicates.add(agentEmail == null ? cb.disjunction() : cb.equal(root.get("assignedAgent"), agentEmail));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -301,14 +202,11 @@ public class SupportTicketService {
         return new TicketDto(
                 ticket.getId(), ticket.getTicketReference(), ticket.getSessionId(), ticket.getUserId(),
                 userEmail(ticket.getUserId()),
-                ticket.getSubject(), ticket.getDescription(), ticket.getStatus(),
-                ticket.getPriority(), ticket.getCategory(), ticket.getAssignedAgent(), ticket.getSentiment(),
+                ticket.getSubject(), ticket.getDescription(), ticket.getStatus().name(),
+                ticket.getPriority().name(), ticket.getCategory(), ticket.getAssignedAgent(), ticket.getSentiment(),
                 ticket.getCreatedAt(), ticket.getUpdatedAt());
     }
 
-    /**
-     * Count tickets by status.
-     */
     public long countByStatus(String status) {
         return ticketRepository.countByStatus(status);
     }
@@ -319,9 +217,7 @@ public class SupportTicketService {
     }
 
     private String userEmail(Long userId) {
-        if (userId == null) {
-            return null;
-        }
+        if (userId == null) return null;
         return userRepository.findById(userId).map(User::getEmail).orElse(null);
     }
 }

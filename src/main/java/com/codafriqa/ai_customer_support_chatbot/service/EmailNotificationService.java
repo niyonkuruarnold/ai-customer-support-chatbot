@@ -11,19 +11,15 @@ import org.springframework.stereotype.Service;
 
 /**
  * Automated email notifications for ticket lifecycle events (opened,
- * updated, resolved) via JavaMailSender — configured for Mailtrap-style
- * SMTP (see application.properties / .env.example).
+ * updated, resolved) via JavaMailSender.
  *
- * Sending is best-effort: any failure (missing SMTP credentials, offline
- * network, bad address) is logged as a warning and never propagates, so a
- * mail outage can never break a ticket operation.
+ * Sending is best-effort: any failure is logged and never propagates.
  */
 @Service
 public class EmailNotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailNotificationService.class);
 
-    /** Lifecycle events that produce a customer email. */
     public enum TicketEvent {
         OPENED,
         UPDATED,
@@ -39,10 +35,6 @@ public class EmailNotificationService {
         this.from = from;
     }
 
-    /**
-     * Send a ticket notification email to the customer. No-op (logged at
-     * debug) when the recipient is unknown; never throws.
-     */
     public void sendTicketNotification(String to, SupportTicket ticket, TicketEvent event) {
         if (to == null || to.isBlank()) {
             log.debug("Skipping {} email for ticket #{}: no customer email on record",
@@ -73,7 +65,7 @@ public class EmailNotificationService {
     }
 
     private String textFor(TicketEvent event, SupportTicket ticket) {
-        String status = ticket.getStatus() == null ? "OPEN" : ticket.getStatus();
+        String status = ticket.getStatus() == null ? "OPEN" : ticket.getStatus().name();
         String body = switch (event) {
             case OPENED ->
                     "A support ticket has been opened for your conversation.\n\n"
@@ -101,7 +93,7 @@ public class EmailNotificationService {
     }
 
     private String htmlFor(TicketEvent event, SupportTicket ticket) {
-        String status = ticket.getStatus() == null ? "OPEN" : ticket.getStatus();
+        String status = ticket.getStatus() == null ? "OPEN" : ticket.getStatus().name();
         String headline = switch (event) {
             case OPENED -> "Your support ticket has been opened";
             case UPDATED -> "Your support ticket has been updated";

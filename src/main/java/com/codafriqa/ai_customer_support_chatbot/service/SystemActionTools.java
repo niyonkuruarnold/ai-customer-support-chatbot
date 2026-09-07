@@ -13,18 +13,6 @@ import java.util.Optional;
 /**
  * Spring AI function-calling tools that the model can invoke during a RAG
  * chat to perform live system actions.
- *
- * <p>Each method annotated with {@link Tool} is automatically exposed as a
- * callable function when the {@code ChatClient} is configured with a
- * {@link org.springframework.ai.chat.client.ChatClient.Builder#defaultTools(Object...)}
- * or {@code .tools()} call.
- *
- * <p>Example registration in {@code ChatService}:
- * <pre>{@code
- * this.chatClient = chatClientBuilder
- *         .defaultTools(new SystemActionTools(ticketRepository))
- *         .build();
- * }</pre>
  */
 @Component
 public class SystemActionTools {
@@ -39,12 +27,6 @@ public class SystemActionTools {
 
     /**
      * Look up the current status and priority of a support ticket by its id.
-     *
-     * <p>The AI model calls this tool when the customer asks about an
-     * existing ticket (e.g. "What's the status of ticket 5?").
-     *
-     * @param ticketId the support ticket id to look up
-     * @return a human-readable status summary, or a "not found" message
      */
     @Tool(description = "Check the current status and priority of a support ticket by its id")
     public String checkTicketStatus(@ToolParam(description = "The support ticket id to look up") String ticketId) {
@@ -58,7 +40,10 @@ public class SystemActionTools {
             SupportTicket t = ticket.get();
             return String.format(
                     "Ticket #%d — Status: %s, Priority: %s, Subject: %s",
-                    t.getId(), t.getStatus(), t.getPriority(), t.getSubject());
+                    t.getId(),
+                    t.getStatus() != null ? t.getStatus().name() : "UNKNOWN",
+                    t.getPriority() != null ? t.getPriority().name() : "UNKNOWN",
+                    t.getSubject());
         } catch (NumberFormatException e) {
             return "Invalid ticket id: '" + ticketId + "'. Please provide a numeric ticket id.";
         }

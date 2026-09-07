@@ -12,8 +12,8 @@ import java.util.List;
 /**
  * Service for automatic ticket activity logging.
  * Provides methods to log various ticket events with proper before/after state snapshots.
- * 
- * All log entries are immutable once created - no update or delete operations are allowed.
+ *
+ * All log entries are immutable once created — no update or delete operations are allowed.
  */
 @Service
 public class ActivityLogService {
@@ -30,11 +30,11 @@ public class ActivityLogService {
      * Log a status change event.
      */
     @Transactional
-    public void logStatusChange(Long ticketId, Long actorId, String actorName, 
+    public void logStatusChange(Long ticketId, Long actorId, String actorRole,
                                  String oldStatus, String newStatus) {
         try {
             TicketActivityLog activityLog = TicketActivityLog.statusChange(
-                ticketId, actorId, actorName, oldStatus, newStatus);
+                ticketId, actorId, actorRole, oldStatus, newStatus);
             activityLogRepository.save(activityLog);
             log.debug("Logged status change for ticket {}: {} -> {}", ticketId, oldStatus, newStatus);
         } catch (Exception e) {
@@ -46,11 +46,11 @@ public class ActivityLogService {
      * Log a priority change event.
      */
     @Transactional
-    public void logPriorityChange(Long ticketId, Long actorId, String actorName,
+    public void logPriorityChange(Long ticketId, Long actorId, String actorRole,
                                    String oldPriority, String newPriority) {
         try {
             TicketActivityLog activityLog = TicketActivityLog.priorityChange(
-                ticketId, actorId, actorName, oldPriority, newPriority);
+                ticketId, actorId, actorRole, oldPriority, newPriority);
             activityLogRepository.save(activityLog);
             log.debug("Logged priority change for ticket {}: {} -> {}", ticketId, oldPriority, newPriority);
         } catch (Exception e) {
@@ -62,11 +62,11 @@ public class ActivityLogService {
      * Log an assignment change event.
      */
     @Transactional
-    public void logAssignment(Long ticketId, Long actorId, String actorName,
+    public void logAssignment(Long ticketId, Long actorId, String actorRole,
                                String oldAssignee, String newAssignee) {
         try {
             TicketActivityLog activityLog = TicketActivityLog.assignment(
-                ticketId, actorId, actorName, oldAssignee, newAssignee);
+                ticketId, actorId, actorRole, oldAssignee, newAssignee);
             activityLogRepository.save(activityLog);
             log.debug("Logged assignment change for ticket {}: {} -> {}", ticketId, oldAssignee, newAssignee);
         } catch (Exception e) {
@@ -75,18 +75,45 @@ public class ActivityLogService {
     }
 
     /**
-     * Log a reply or internal note event.
+     * Log a public reply event.
      */
     @Transactional
-    public void logReply(Long ticketId, Long actorId, String actorName, 
-                          String content, boolean isInternal) {
+    public void logPublicReply(Long ticketId, Long actorId, String actorRole, String content) {
         try {
-            TicketActivityLog activityLog = TicketActivityLog.reply(
-                ticketId, actorId, actorName, content, isInternal);
+            TicketActivityLog activityLog = TicketActivityLog.publicReply(
+                ticketId, actorId, actorRole, content);
             activityLogRepository.save(activityLog);
-            log.debug("Logged {} for ticket {}: {}", isInternal ? "note" : "reply", ticketId, actorName);
+            log.debug("Logged public reply for ticket {}: {}", ticketId, actorRole);
         } catch (Exception e) {
-            log.error("Failed to log reply for ticket {}: {}", ticketId, e.getMessage());
+            log.error("Failed to log public reply for ticket {}: {}", ticketId, e.getMessage());
+        }
+    }
+
+    /**
+     * Log an internal note event.
+     */
+    @Transactional
+    public void logInternalNote(Long ticketId, Long actorId, String actorRole, String content) {
+        try {
+            TicketActivityLog activityLog = TicketActivityLog.internalNote(
+                ticketId, actorId, actorRole, content);
+            activityLogRepository.save(activityLog);
+            log.debug("Logged internal note for ticket {}: {}", ticketId, actorRole);
+        } catch (Exception e) {
+            log.error("Failed to log internal note for ticket {}: {}", ticketId, e.getMessage());
+        }
+    }
+
+    /**
+     * Log a reply or internal note event (convenience method for backward compatibility).
+     */
+    @Transactional
+    public void logReply(Long ticketId, Long actorId, String actorRole,
+                          String content, boolean isInternal) {
+        if (isInternal) {
+            logInternalNote(ticketId, actorId, actorRole, content);
+        } else {
+            logPublicReply(ticketId, actorId, actorRole, content);
         }
     }
 
@@ -94,12 +121,14 @@ public class ActivityLogService {
      * Log a ticket reopen event.
      */
     @Transactional
-    public void logReopen(Long ticketId, Long actorId, String actorName, String reason) {
+    public void logReopen(Long ticketId, Long actorId, String actorRole, String reason) {
         try {
-            TicketActivityLog activityLog = TicketActivityLog.reopen(
-                ticketId, actorId, actorName, reason);
+            // Reopen is modeled as a STATUS_CHANGE from RESOLVED/CLOSED -> REOPENED
+            TicketActivityLog activityLog = TicketActivityLog.statusChange(
+                ticketId, actorId, actorRole, "RESOLVED", "REOPENED");
+            activityLog.setNote("Ticket reopened" + (reason != null ? ": " + reason : ""));
             activityLogRepository.save(activityLog);
-            log.debug("Logged reopen for ticket {}: {}", ticketId, actorName);
+            log.debug("Logged reopen for ticket {}: {}", ticketId, actorRole);
         } catch (Exception e) {
             log.error("Failed to log reopen for ticket {}: {}", ticketId, e.getMessage());
         }
@@ -109,12 +138,11 @@ public class ActivityLogService {
      * Log a custom event.
      */
     @Transactional
-    public void logCustom(Long ticketId, Long actorId, String actorName, String actionType,
-                           String description, boolean customerVisible) {
+    public void logCustom(Long ticketId, Long actorId, String actorRole, String actionType,
+                           String note, boolean customerVisible) {
         try {
-            TicketActivityLog activityLog = new TicketActivityLog(ticketId, actorId, actorName, actionType);
-            activityLog.setDescription(description);
-            activityLog.setCustomerVisible(customerVisible);
+            TicketActivityLog activityLog = new TicketActivityLog(ticketId, actorId, actorRole, actionType);
+            activityLog.setNote(note);
             activityLogRepository.save(activityLog);
             log.debug("Logged custom event for ticket {}: {}", ticketId, actionType);
         } catch (Exception e) {

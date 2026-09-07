@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getAuditLogsV1, getFilteredAuditLogsV1, exportAuditLogsCsv, exportAuditLogsPdf } from '../../api/admin'
+import { getAuditLogsV1, getFilteredAuditLogsV1 } from '../../api/admin'
+import { exportAuditLogsCsv, exportAuditLogsPdf } from '../../api/analytics'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },

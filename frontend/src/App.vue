@@ -15,6 +15,8 @@ import AgentWorkspace from './components/agent/AgentWorkspace.vue'
 import KnowledgeBaseAdmin from './components/admin/KnowledgeBaseAdmin.vue'
 import TicketDashboard from './components/admin/TicketDashboard.vue'
 import OwnerDashboard from './components/admin/OwnerDashboard.vue'
+import AnalyticsDashboard from './components/admin/AnalyticsDashboard.vue'
+import AuditLogViewer from './components/admin/AuditLogViewer.vue'
 import MyReservations from './components/reservations/MyReservations.vue'
 import { MAX_MESSAGE_LENGTH, useChatStore } from './stores/chat'
 import { useAgentStore } from './stores/agent'
@@ -31,7 +33,7 @@ const feedbackSubmitted = ref(false)
 const ROLES = { CUSTOMER: 'CUSTOMER', AGENT: 'AGENT', ADMIN: 'ADMIN' }
 
 // ── View mode: 'chat' | 'my-tickets' | 'agent' | 'knowledge' | 'tickets' | 'reservations' | 'owner'
-const VALID_VIEWS = ['chat', 'my-tickets', 'agent', 'tickets', 'reservations', 'owner', 'knowledge']
+const VALID_VIEWS = ['chat', 'my-tickets', 'agent', 'tickets', 'reservations', 'owner', 'knowledge', 'analytics', 'audit']
 
 /** Which views each role may access */
 const ROLE_ALLOWED_VIEWS = {
@@ -296,6 +298,8 @@ const ROLE_NAV_ITEMS = {
   ADMIN: [
     { key: 'agent', label: 'Live Customer Workspace', icon: '🎧' },
     { key: 'tickets', label: 'Ticket Queue', icon: '🎫' },
+    { key: 'analytics', label: 'Analytics', icon: '📊' },
+    { key: 'audit', label: 'Audit Logs', icon: '📋' },
     { key: 'knowledge', label: 'Knowledge Base Admin', icon: '📚' },
     { key: 'owner', label: 'System Indexer', icon: '🔧' },
   ],
@@ -806,6 +810,20 @@ const staffRoleLabel = computed(() => {
             class="h-full"
           />
 
+          <!-- ── Analytics Dashboard ───────────────────────────── -->
+          <AnalyticsDashboard
+            v-else-if="view === 'analytics'"
+            embedded
+            class="h-full"
+          />
+
+          <!-- ── Audit Log Viewer ──────────────────────────────── -->
+          <AuditLogViewer
+            v-else-if="view === 'audit'"
+            embedded
+            class="h-full"
+          />
+
           <!-- ── Reservations ───────────────────────────────────── -->
           <MyReservations
             v-else-if="view === 'reservations'"
@@ -1134,6 +1152,20 @@ const staffRoleLabel = computed(() => {
       <!-- ── System Indexer ──────────────────────────────────────── -->
       <OwnerDashboard
         v-else-if="view === 'owner'"
+        embedded
+        class="h-full"
+      />
+
+      <!-- ── Analytics Dashboard ───────────────────────────────── -->
+      <AnalyticsDashboard
+        v-else-if="view === 'analytics'"
+        embedded
+        class="h-full"
+      />
+
+      <!-- ── Audit Log Viewer ──────────────────────────────────── -->
+      <AuditLogViewer
+        v-else-if="view === 'audit'"
         embedded
         class="h-full"
       />

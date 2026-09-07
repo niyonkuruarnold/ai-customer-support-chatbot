@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
+import com.codafriqa.ai_customer_support_chatbot.dto.AnalyticsMetricsDto;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatFeedback;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatMessage;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatSession;
@@ -41,6 +42,68 @@ public class AnalyticsService {
         this.messageRepository = messageRepository;
         this.feedbackRepository = feedbackRepository;
         this.ticketRepository = ticketRepository;
+    }
+
+    /**
+     * Section 6.9 operational metrics.
+     * Computes AI Containment Rate, Human Escalation Rate, Average CSAT,
+     * and Average First Response Time for the given date range.
+     */
+    public AnalyticsMetricsDto getOperationalMetrics(LocalDateTime startDate, LocalDateTime endDate) {
+        log.debug("Calculating operational metrics from {} to {}", startDate, endDate);
+
+        List<ChatSession> allSessions = sessionRepository.findAll();
+        List<ChatSession> sessionsInRange = allSessions.stream()
+                .filter(s -> !s.getCreatedAt().isBefore(startDate) && !s.getCreatedAt().isAfter(endDate))
+                .toList();
+
+        long totalSessions = sessionsInRange.size();
+        long escalatedSessions = sessionsInRange.stream()
+                .filter(s -> "ESCALATED".equals(s.getStatus()))
+                .count();
+        long aiResolvedSessions = totalSessions - escalatedSessions;
+
+        double aiContainmentRate = totalSessions > 0
+                ? ((double) aiResolvedSessions / totalSessions) * 100 : 0;
+        double humanEscalationRate = totalSessions > 0
+                ? ((double) escalatedSessions / totalSessions) * 100 : 0;
+
+        Optional<Double> avgRating = feedbackRepository.findAverageRating();
+        double csatScore = avgRating.orElse(0.0);
+
+        double avgFrtMinutes = calculateAverageFirstResponseTime(sessionsInRange) / 60.0;
+
+        // Ticket breakdowns
+        Map<String, Long> ticketsByStatus = Map.of(
+                "NEW", ticketRepository.countByStatus("NEW"),
+                "OPEN", ticketRepository.countByStatus("OPEN"),
+                "PENDING_CUSTOMER", ticketRepository.countByStatus("PENDING_CUSTOMER"),
+                "PENDING_INTERNAL", ticketRepository.countByStatus("PENDING_INTERNAL"),
+                "RESOLVED", ticketRepository.countByStatus("RESOLVED"),
+                "CLOSED", ticketRepository.countByStatus("CLOSED"),
+                "REOPENED", ticketRepository.countByStatus("REOPENED")
+        );
+
+        Map<String, Long> ticketsByPriority = Map.of(
+                "LOW", ticketRepository.countByStatus("LOW"),
+                "MEDIUM", ticketRepository.countByStatus("MEDIUM"),
+                "HIGH", ticketRepository.countByStatus("HIGH"),
+                "URGENT", ticketRepository.countByStatus("URGENT")
+        );
+
+        return new AnalyticsMetricsDto(
+                totalSessions,
+                aiResolvedSessions,
+                escalatedSessions,
+                Math.round(aiContainmentRate * 100.0) / 100.0,
+                Math.round(humanEscalationRate * 100.0) / 100.0,
+                csatScore > 0 ? Math.round(csatScore * 100.0) / 100.0 : null,
+                Math.round(avgFrtMinutes * 100.0) / 100.0,
+                ticketsByStatus,
+                ticketsByPriority,
+                startDate,
+                endDate
+        );
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.controller;
 
+import com.codafriqa.ai_customer_support_chatbot.dto.AnalyticsMetricsDto;
 import com.codafriqa.ai_customer_support_chatbot.service.AnalyticsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,6 +25,23 @@ public class AnalyticsController {
 
     public AnalyticsController(AnalyticsService analyticsService) {
         this.analyticsService = analyticsService;
+    }
+
+    /**
+     * Get Section 6.9 operational metrics.
+     * GET /api/v1/analytics/metrics?startDate=...&endDate=...
+     */
+    @Operation(summary = "Get operational metrics",
+               description = "Returns AI Containment Rate, Human Escalation Rate, Average CSAT, and Average FRT.")
+    @GetMapping("/metrics")
+    public ResponseEntity<AnalyticsMetricsDto> getMetrics(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
+
+        if (startDate == null) startDate = LocalDateTime.now().minusDays(30);
+        if (endDate == null) endDate = LocalDateTime.now();
+
+        return ResponseEntity.ok(analyticsService.getOperationalMetrics(startDate, endDate));
     }
 
     /**

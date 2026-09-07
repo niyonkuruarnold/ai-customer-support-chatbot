@@ -190,7 +190,12 @@ public class AuditLogService {
      */
     public Page<AuditLog> getFilteredLogs(String actionType, String actorEmail, String resourceType,
                                            LocalDateTime startDate, LocalDateTime endDate, Pageable pageable) {
-        return auditLogRepository.findFiltered(actionType, actorEmail, resourceType, startDate, endDate, pageable);
+        return auditLogRepository.findFiltered(actionType, actorEmail, null, resourceType, startDate, endDate, pageable);
+    }
+
+    public Page<AuditLog> getFilteredLogs(String actionType, String actorEmail, String actorRole, String resourceType,
+                                           LocalDateTime startDate, LocalDateTime endDate, Pageable pageable) {
+        return auditLogRepository.findFiltered(actionType, actorEmail, actorRole, resourceType, startDate, endDate, pageable);
     }
 
     /**

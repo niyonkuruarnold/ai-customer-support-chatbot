@@ -34,6 +34,16 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     Page<AuditLog> findByActorEmailOrderByTimestampDesc(String actorEmail, Pageable pageable);
 
     /**
+     * Find audit logs by actor role.
+     */
+    Page<AuditLog> findByActorRoleOrderByTimestampDesc(String actorRole, Pageable pageable);
+
+    /**
+     * Count audit logs by actor role.
+     */
+    long countByActorRole(String actorRole);
+
+    /**
      * Find audit logs within a date range.
      */
     Page<AuditLog> findByTimestampBetweenOrderByTimestampDesc(
@@ -76,6 +86,7 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     @Query("SELECT a FROM AuditLog a WHERE " +
            "(:actionType IS NULL OR a.actionType = :actionType) AND " +
            "(:actorEmail IS NULL OR a.actorEmail = :actorEmail) AND " +
+           "(:actorRole IS NULL OR a.actorRole = :actorRole) AND " +
            "(:resourceType IS NULL OR a.resourceType = :resourceType) AND " +
            "(:startDate IS NULL OR a.timestamp >= :startDate) AND " +
            "(:endDate IS NULL OR a.timestamp <= :endDate) " +
@@ -83,6 +94,7 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     Page<AuditLog> findFiltered(
             @Param("actionType") String actionType,
             @Param("actorEmail") String actorEmail,
+            @Param("actorRole") String actorRole,
             @Param("resourceType") String resourceType,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,

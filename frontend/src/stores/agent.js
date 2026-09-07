@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import * as agentApi from '../api/agent'
 import * as adminApi from '../api/admin'
 import { setMaintenanceAuth, clearMaintenanceAuth } from '../api/maintenance'
+import { setAnalyticsAuth, clearAnalyticsAuth } from '../api/analytics'
 
 // How often the agent workspace refreshes the ticket queue + the open
 // conversation, so new escalations and customer messages appear live.
@@ -63,6 +64,7 @@ export const useAgentStore = defineStore('agent', {
       // The knowledge base manager reuses the same Basic credentials
       adminApi.setAdminAuth(username, password)
       setMaintenanceAuth(username, password)
+      setAnalyticsAuth(username, password)
       this.agentName = username
       this.error = null
       // Fetch the authenticated user's role from the backend
@@ -101,6 +103,7 @@ export const useAgentStore = defineStore('agent', {
       agentApi.clearAgentAuth()
       adminApi.clearAdminAuth()
       clearMaintenanceAuth()
+      clearAnalyticsAuth()
       this.authenticated = false
       this.agentName = ''
       this.userId = null
@@ -259,6 +262,7 @@ export const useAgentStore = defineStore('agent', {
         agentApi.clearAgentAuth()
         adminApi.clearAdminAuth()
         clearMaintenanceAuth()
+        clearAnalyticsAuth()
       }
     },
   },

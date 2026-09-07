@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
+import com.codafriqa.ai_customer_support_chatbot.dto.AnalyticsMetricsDto;
 import com.codafriqa.ai_customer_support_chatbot.model.AuditLog;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
 import com.codafriqa.ai_customer_support_chatbot.repository.AuditLogRepository;
@@ -162,7 +163,92 @@ public class ExportService {
         return baos.toByteArray();
     }
 
-    // ─── Analytics CSV Export (Section 6.9) ──────────────────────────
+    // ─── Analytics Exports (Sections 6.9 & 6.10) ─────────────────────
+
+    /**
+     * Export analytics performance summary as a styled PDF report.
+     */
+    public byte[] exportAnalyticsToPdf(AnalyticsMetricsDto metrics) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try {
+            PdfWriter writer = new PdfWriter(baos);
+            PdfDocument pdfDoc = new PdfDocument(writer);
+            Document document = new Document(pdfDoc);
+
+            DeviceRgb headerBg = new DeviceRgb(79, 70, 229);
+
+            // Title
+            document.add(new Paragraph("Analytics Performance Report")
+                    .setFontSize(20).setBold()
+                    .setFontColor(ColorConstants.DARK_GRAY)
+                    .setMarginBottom(5));
+            document.add(new Paragraph("Generated: " + LocalDateTime.now().format(DATE_FORMAT))
+                    .setFontSize(10).setFontColor(ColorConstants.GRAY).setMarginBottom(5));
+            document.add(new Paragraph("Period: " + metrics.startDate().format(DATE_FORMAT)
+                    + " — " + metrics.endDate().format(DATE_FORMAT))
+                    .setFontSize(10).setFontColor(ColorConstants.GRAY).setMarginBottom(20));
+
+            // Key Metrics Table
+            document.add(new Paragraph("Key Metrics")
+                    .setFontSize(14).setBold().setMarginBottom(10));
+
+            float[] colWidths = {4f, 2f};
+            Table metricsTable = new Table(UnitValue.createPercentArray(colWidths)).useAllAvailableWidth();
+
+            String[][] rows = {
+                    {"Total Conversations", String.valueOf(metrics.totalConversations())},
+                    {"AI Resolved Conversations", String.valueOf(metrics.aiResolvedConversations())},
+                    {"Escalated Conversations", String.valueOf(metrics.escalatedConversations())},
+                    {"AI Containment Rate", String.format("%.2f%%", metrics.aiContainmentRate())},
+                    {"Human Escalation Rate", String.format("%.2f%%", metrics.humanEscalationRate())},
+                    {"Average CSAT Rating", metrics.averageCsatRating() != null
+                            ? String.format("%.2f / 5.0", metrics.averageCsatRating()) : "N/A"},
+                    {"Avg First Response Time", String.format("%.2f minutes", metrics.averageFirstResponseTimeMinutes())}
+            };
+
+            for (String[] row : rows) {
+                Cell labelCell = new Cell().add(new Paragraph(row[0]).setFontSize(10).setBold())
+                        .setPadding(5).setBackgroundColor(new DeviceRgb(245, 243, 255));
+                Cell valueCell = new Cell().add(new Paragraph(row[1]).setFontSize(10))
+                        .setPadding(5);
+                metricsTable.addCell(labelCell);
+                metricsTable.addCell(valueCell);
+            }
+            document.add(metricsTable);
+            document.add(new Paragraph("").setMarginBottom(15));
+
+            // Tickets by Status
+            if (metrics.ticketsByStatus() != null && !metrics.ticketsByStatus().isEmpty()) {
+                document.add(new Paragraph("Tickets by Status")
+                        .setFontSize(14).setBold().setMarginBottom(10));
+                Table statusTable = new Table(UnitValue.createPercentArray(colWidths)).useAllAvailableWidth();
+                metrics.ticketsByStatus().forEach((status, count) -> {
+                    statusTable.addCell(createCell(status));
+                    statusTable.addCell(createCell(String.valueOf(count)));
+                });
+                document.add(statusTable);
+                document.add(new Paragraph("").setMarginBottom(15));
+            }
+
+            // Tickets by Priority
+            if (metrics.ticketsByPriority() != null && !metrics.ticketsByPriority().isEmpty()) {
+                document.add(new Paragraph("Tickets by Priority")
+                        .setFontSize(14).setBold().setMarginBottom(10));
+                Table priorityTable = new Table(UnitValue.createPercentArray(colWidths)).useAllAvailableWidth();
+                metrics.ticketsByPriority().forEach((priority, count) -> {
+                    priorityTable.addCell(createCell(priority));
+                    priorityTable.addCell(createCell(String.valueOf(count)));
+                });
+                document.add(priorityTable);
+            }
+
+            document.close();
+        } catch (Exception e) {
+            log.error("Failed to export analytics to PDF: {}", e.getMessage());
+            throw new RuntimeException("Analytics PDF export failed", e);
+        }
+        return baos.toByteArray();
+    }
 
     /**
      * Export analytics performance summary as a CSV.

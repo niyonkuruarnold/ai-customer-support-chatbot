@@ -71,8 +71,7 @@ class ChatServiceTest {
     @Mock
     private UserRepository userRepository;
 
-    @Mock
-    private WebSocketChatController webSocketController;
+    private final StubWebSocketChatController webSocketController = new StubWebSocketChatController();
 
     private final RecordingEscalationService escalationService = new RecordingEscalationService();
 
@@ -96,6 +95,20 @@ class ChatServiceTest {
             escalateCalled = true;
             return null;
         }
+    }
+
+    /**
+     * No-op WebSocketChatController stub. (Mockito cannot mock the concrete
+     * class on JDK 26, so we substitute a no-op instance.)
+     */
+    static class StubWebSocketChatController extends WebSocketChatController {
+        StubWebSocketChatController() {
+            super(null, null);
+        }
+
+        @Override public void broadcastSummary(Long sessionId, String summary, String sentiment) {}
+        @Override public void broadcastStatusChange(Long sessionId, String newStatus) {}
+        @Override public void broadcastInternalNote(Long sessionId, String note, Long messageId) {}
     }
 
     /** Minimal VectorStore returning a fixed result list (Mockito can't mock this interface on this JDK). */

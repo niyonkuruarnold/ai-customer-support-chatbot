@@ -1,6 +1,8 @@
 package com.codafriqa.ai_customer_support_chatbot.service;
 
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketStatus;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketPriority;
 import com.codafriqa.ai_customer_support_chatbot.repository.SupportTicketRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,8 +29,8 @@ class SystemActionToolsTest {
     void checkTicketStatusReturnsFormattedStatusWhenTicketExists() {
         SupportTicket ticket = new SupportTicket(1L, 1L, "Login issue", "Cannot log in");
         ticket.setId(7L);
-        ticket.setStatus("IN_PROGRESS");
-        ticket.setPriority("HIGH");
+        ticket.setStatus(TicketStatus.PENDING_INTERNAL);
+        ticket.setPriority(TicketPriority.HIGH);
 
         when(ticketRepository.findById(7L)).thenReturn(Optional.of(ticket));
 
@@ -36,7 +38,7 @@ class SystemActionToolsTest {
         String result = tools.checkTicketStatus("7");
 
         assertTrue(result.contains("Ticket #7"));
-        assertTrue(result.contains("IN_PROGRESS"));
+        assertTrue(result.contains("PENDING_INTERNAL"));
         assertTrue(result.contains("HIGH"));
         assertTrue(result.contains("Login issue"));
     }

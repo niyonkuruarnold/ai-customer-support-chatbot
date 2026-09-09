@@ -61,3 +61,4 @@ docker-compose.override.yml
 /tmp/
 coverage/
 .nyc_output/
+frontend/.env

@@ -1,11 +1,11 @@
 # Docker Compose Staging Configuration
 # Production-ready staging environment with PostgreSQL, Spring Boot, and Vue 3
-# 
+#
 # Usage:
 #   docker compose -f docker-compose.staging.yml up --build
 #
 # Services:
-#   - postgres: PostgreSQL with pgvector extension
+#   - db: PostgreSQL with pgvector extension
 #   - backend: Spring Boot API server
 #   - frontend: Vue 3 SPA served via Nginx
 
@@ -13,9 +13,9 @@ version: '3.8'
 
 services:
   # ─── PostgreSQL Database ─────────────────────────────────────────────
-  postgres:
+  db:
     image: pgvector/pgvector:pg16
-    container_name: chatbot_postgres_staging
+    container_name: chatbot_db_staging
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -25,7 +25,7 @@ services:
     volumes:
       - pgdata_staging:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_customer_support_chatbot"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,7 +45,7 @@ services:
       # Database configuration
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ai_customer_support_chatbot
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/ai_customer_support_chatbot
       
       # Security configuration
       SECURITY_USER: admin
@@ -63,7 +63,7 @@ services:
       # Java options
       JAVA_OPTS: "-Xms256m -Xmx512m"
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]

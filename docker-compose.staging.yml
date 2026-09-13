@@ -1,25 +1,14 @@
-# Docker Compose Staging Configuration
-# Production-ready staging environment with PostgreSQL, Spring Boot, and Vue 3
-#
-# Usage:
-#   docker compose -f docker-compose.staging.yml up --build
-#
-# Services:
-#   - db: PostgreSQL with pgvector extension
-#   - backend: Spring Boot API server
-#   - frontend: Vue 3 SPA served via Nginx
-
 version: '3.8'
 
 services:
   # ─── PostgreSQL Database ─────────────────────────────────────────────
-  db:
+  chatbot_db_staging:
     image: pgvector/pgvector:pg16
     container_name: chatbot_db_staging
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ai_customer_support_chatbot
+      POSTGRES_DB: ai_support_db
     ports:
       - "5432:5432"
     volumes:
@@ -31,10 +20,12 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - chatbot_network
+      chatbot_network:
+        aliases:
+          - db
 
   # ─── Spring Boot Backend ─────────────────────────────────────────────
-  backend:
+  chatbot_backend_staging:
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -45,7 +36,8 @@ services:
       # Database configuration
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/ai_customer_support_chatbot
+      SPRING_DATASOURCE_URL: jdbc:postgresql://chatbot_db_staging:5432/ai_support_db
+      SPRING_PROFILES_ACTIVE: staging
       
       # Security configuration
       SECURITY_USER: admin
@@ -63,7 +55,7 @@ services:
       # Java options
       JAVA_OPTS: "-Xms256m -Xmx512m"
     depends_on:
-      db:
+      chatbot_db_staging:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
@@ -75,7 +67,7 @@ services:
       - chatbot_network
 
   # ─── Vue 3 Frontend (Nginx) ──────────────────────────────────────────
-  frontend:
+  chatbot_frontend_staging:
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -83,7 +75,7 @@ services:
     ports:
       - "80:80"
     depends_on:
-      backend:
+      chatbot_backend_staging:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]

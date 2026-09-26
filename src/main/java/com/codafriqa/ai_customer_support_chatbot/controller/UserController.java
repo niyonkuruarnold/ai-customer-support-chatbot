@@ -36,7 +36,7 @@ public class UserController {
     @Operation(
             summary = "Get current user",
             description = "Return the profile (id, email, role) of the currently authenticated user. " +
-                    "Requires HTTP Basic authentication.")
+                    "Requires a Bearer access token.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Current user profile returned"),
             @ApiResponse(responseCode = "401", description = "Authentication required")
@@ -47,7 +47,7 @@ public class UserController {
         if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        String username = auth.getName(); // HTTP Basic username = email
+        String username = auth.getName();
         Optional<UserResponseDto> dbUser = userService.findByEmail(username);
         if (dbUser.isPresent()) {
             return ResponseEntity.ok(dbUser.get());

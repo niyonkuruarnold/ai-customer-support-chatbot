@@ -14,15 +14,14 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>Defines API metadata displayed in Swagger UI ({@code /swagger-ui.html})
  * and the machine-readable spec at {@code /v3/api-docs}. Also registers
- * HTTP Basic authentication so the protected agent/admin endpoints can be
- * tested directly from Swagger UI.
+ * Bearer authentication for protected endpoints in Swagger UI.
  */
 @Configuration
 public class OpenApiConfig {
 
     @Bean
     public OpenAPI customOpenAPI() {
-        final String securitySchemeName = "basicAuth";
+        final String securitySchemeName = "bearerAuth";
 
         return new OpenAPI()
                 .info(new Info()
@@ -38,7 +37,7 @@ public class OpenApiConfig {
                                 new SecurityScheme()
                                         .name(securitySchemeName)
                                         .type(SecurityScheme.Type.HTTP)
-                                        .scheme("basic")
-                                        .description("HTTP Basic authentication for agent and admin endpoints (default: admin / admin123)")));
+                                        .scheme("bearer")
+                                        .description("Bearer access token from POST /api/auth/token")));
     }
 }

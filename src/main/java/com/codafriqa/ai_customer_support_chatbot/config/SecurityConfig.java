@@ -3,7 +3,8 @@ package com.codafriqa.ai_customer_support_chatbot.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -13,15 +14,19 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
+
+    private static final String DEMO_ACCOUNT_PASSWORD = "Password123!";
 
     @Value("${spring.security.user.name:admin}")
     private String defaultUsername;
@@ -64,7 +69,25 @@ public class SecurityConfig {
                 .roles("EDITOR")
                 .build();
 
-        return new InMemoryUserDetailsManager(admin, agent, manager, editor);
+        var demoAdmin = User.builder()
+            .username("admin@codafriqa.local")
+            .password(encoder.encode(DEMO_ACCOUNT_PASSWORD))
+            .roles("ADMIN")
+            .build();
+
+        var demoAgent = User.builder()
+            .username("agent@codafriqa.local")
+            .password(encoder.encode(DEMO_ACCOUNT_PASSWORD))
+            .roles("AGENT")
+            .build();
+
+        var demoCustomer = User.builder()
+            .username("customer@codafriqa.local")
+            .password(encoder.encode(DEMO_ACCOUNT_PASSWORD))
+            .roles("CUSTOMER")
+            .build();
+
+        return new InMemoryUserDetailsManager(admin, agent, manager, editor, demoAdmin, demoAgent, demoCustomer);
     }
 
     @Bean
@@ -73,22 +96,34 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        // Defines authorization rules, disables CSRF for stateless REST APIs,
-        // and enables HTTP Basic auth/request authorization.
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
+        return configuration.getAuthenticationManager();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http, BearerTokenFilter bearerTokenFilter) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
-            // Agent workspace endpoints use HTTP Basic (agent sign-in in the frontend)
-            .httpBasic(Customizer.withDefaults())
+            .sessionManagement(session -> session.sessionCreationPolicy(
+                    org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
+            .httpBasic(httpBasic -> httpBasic.disable())
+            .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, authException) -> {
+                response.setStatus(org.springframework.http.HttpStatus.UNAUTHORIZED.value());
+                response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+                response.setContentType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
+                response.getWriter().write("{\"status\":401,\"error\":\"Unauthorized\"}");
+            }))
+            .addFilterBefore(bearerTokenFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
                 // Swagger / OpenAPI docs — always accessible
                 .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                 // Chat endpoint — public (anonymous customer sessions)
                 .requestMatchers("/api/chat/**").permitAll()
+                .requestMatchers("/api/auth/token").permitAll()
 
                 // ── Agent workspace (authenticated, role checked at method level) ──
-                .requestMatchers("/api/agent/**", "/api/v1/agent/**").authenticated()
+                .requestMatchers("/api/agent/**", "/api/v1/agent/**").hasAnyRole("ADMIN", "AGENT")
 
                 // ── Knowledge base: vector uploads → ADMIN only ──
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/admin/**", "/api/v1/admin/**").hasRole("ADMIN")

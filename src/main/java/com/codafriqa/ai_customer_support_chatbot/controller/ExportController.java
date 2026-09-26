@@ -4,9 +4,9 @@ import com.codafriqa.ai_customer_support_chatbot.model.AuditLog;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
 import com.codafriqa.ai_customer_support_chatbot.service.AuditLogService;
 import com.codafriqa.ai_customer_support_chatbot.service.ExportService;
+import com.codafriqa.ai_customer_support_chatbot.util.DateTimeParams;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -100,17 +100,20 @@ public class ExportController {
     @Operation(summary = "Export audit logs to CSV", description = "Download audit logs as CSV file.")
     @GetMapping("/audit/csv")
     public ResponseEntity<byte[]> exportAuditLogsCsv(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
             Authentication authentication) {
-        
+
+        LocalDateTime start = DateTimeParams.parseStart(startDate, null);
+        LocalDateTime end = DateTimeParams.parseEnd(endDate, null);
+
         // Get audit logs based on date range
-        List<AuditLog> logs = getFilteredAuditLogs(startDate, endDate);
+        List<AuditLog> logs = getFilteredAuditLogs(start, end);
         
         // Log the export
         String actorEmail = authentication != null ? authentication.getName() : "System";
         auditLogService.logDataExport(null, actorEmail, "AUDIT_LOGS", "CSV", 
-            "startDate=" + startDate + ",endDate=" + endDate);
+            "startDate=" + start + ",endDate=" + end);
         
         // Generate CSV
         String csv = exportService.exportAuditLogsToCsv(logs);
@@ -129,17 +132,20 @@ public class ExportController {
     @Operation(summary = "Export audit logs to PDF", description = "Download audit logs as PDF file.")
     @GetMapping("/audit/pdf")
     public ResponseEntity<byte[]> exportAuditLogsPdf(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
             Authentication authentication) {
-        
+
+        LocalDateTime start = DateTimeParams.parseStart(startDate, null);
+        LocalDateTime end = DateTimeParams.parseEnd(endDate, null);
+
         // Get audit logs based on date range
-        List<AuditLog> logs = getFilteredAuditLogs(startDate, endDate);
+        List<AuditLog> logs = getFilteredAuditLogs(start, end);
         
         // Log the export
         String actorEmail = authentication != null ? authentication.getName() : "System";
         auditLogService.logDataExport(null, actorEmail, "AUDIT_LOGS", "PDF", 
-            "startDate=" + startDate + ",endDate=" + endDate);
+            "startDate=" + start + ",endDate=" + end);
         
         // Generate PDF
         byte[] pdf = exportService.exportAuditLogsToPdf(logs);

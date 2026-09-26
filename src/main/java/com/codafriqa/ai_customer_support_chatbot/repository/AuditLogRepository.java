@@ -4,6 +4,7 @@ import com.codafriqa.ai_customer_support_chatbot.model.AuditLog;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -16,7 +17,8 @@ import java.util.List;
  * Intentionally read-only - no delete operations exposed.
  */
 @Repository
-public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
+public interface AuditLogRepository extends JpaRepository<AuditLog, Long>,
+        JpaSpecificationExecutor<AuditLog> {
 
     /**
      * Find all audit logs ordered by timestamp descending (newest first).
@@ -80,23 +82,8 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     @Query("SELECT a FROM AuditLog a WHERE a.timestamp >= :since ORDER BY a.timestamp DESC")
     List<AuditLog> findRecentLogs(@Param("since") LocalDateTime since);
 
-    /**
-     * Find audit logs with multiple filters.
-     */
-    @Query("SELECT a FROM AuditLog a WHERE " +
-           "(:actionType IS NULL OR a.actionType = :actionType) AND " +
-           "(:actorEmail IS NULL OR a.actorEmail = :actorEmail) AND " +
-           "(:actorRole IS NULL OR a.actorRole = :actorRole) AND " +
-           "(:resourceType IS NULL OR a.resourceType = :resourceType) AND " +
-           "(:startDate IS NULL OR a.timestamp >= :startDate) AND " +
-           "(:endDate IS NULL OR a.timestamp <= :endDate) " +
-           "ORDER BY a.timestamp DESC")
-    Page<AuditLog> findFiltered(
-            @Param("actionType") String actionType,
-            @Param("actorEmail") String actorEmail,
-            @Param("actorRole") String actorRole,
-            @Param("resourceType") String resourceType,
-            @Param("startDate") LocalDateTime startDate,
-            @Param("endDate") LocalDateTime endDate,
-            Pageable pageable);
+    // Filtered lookup lives in AuditLogService as a JPA Specification — a
+    // "(:param IS NULL OR ...)" JPQL query fails on PostgreSQL with
+    // 42P18 "could not determine data type of parameter" for nullable
+    // timestamp parameters.
 }

@@ -2,14 +2,19 @@ package com.codafriqa.ai_customer_support_chatbot.service;
 
 import com.codafriqa.ai_customer_support_chatbot.model.AuditLog;
 import com.codafriqa.ai_customer_support_chatbot.repository.AuditLogRepository;
+import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -190,12 +195,44 @@ public class AuditLogService {
      */
     public Page<AuditLog> getFilteredLogs(String actionType, String actorEmail, String resourceType,
                                            LocalDateTime startDate, LocalDateTime endDate, Pageable pageable) {
-        return auditLogRepository.findFiltered(actionType, actorEmail, null, resourceType, startDate, endDate, pageable);
+        return getFilteredLogs(actionType, actorEmail, null, resourceType, startDate, endDate, pageable);
     }
 
     public Page<AuditLog> getFilteredLogs(String actionType, String actorEmail, String actorRole, String resourceType,
                                            LocalDateTime startDate, LocalDateTime endDate, Pageable pageable) {
-        return auditLogRepository.findFiltered(actionType, actorEmail, actorRole, resourceType, startDate, endDate, pageable);
+        // Dynamic Specification instead of a "(:param IS NULL OR ...)" JPQL
+        // query: PostgreSQL cannot infer the type of a nullable timestamp
+        // parameter (42P18 "could not determine data type of parameter $n"),
+        // which made this endpoint return HTTP 500 whenever the date range
+        // was absent. Null filters are simply omitted from the predicates.
+        Specification<AuditLog> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (actionType != null && !actionType.isBlank()) {
+                predicates.add(cb.equal(root.get("actionType"), actionType));
+            }
+            if (actorEmail != null && !actorEmail.isBlank()) {
+                predicates.add(cb.equal(root.get("actorEmail"), actorEmail));
+            }
+            if (actorRole != null && !actorRole.isBlank()) {
+                predicates.add(cb.equal(root.get("actorRole"), actorRole));
+            }
+            if (resourceType != null && !resourceType.isBlank()) {
+                predicates.add(cb.equal(root.get("resourceType"), resourceType));
+            }
+            if (startDate != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("timestamp"), startDate));
+            }
+            if (endDate != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("timestamp"), endDate));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        Pageable sorted = pageable.getSort().isSorted()
+                ? pageable
+                : PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                        Sort.by(Sort.Direction.DESC, "timestamp"));
+        return auditLogRepository.findAll(spec, sorted);
     }
 
     /**

@@ -54,17 +54,20 @@ public class EscalationService {
     private final ChatSessionRepository sessionRepository;
     private final SupportTicketRepository ticketRepository;
     private final SupportTicketService supportTicketService;
+    private final TicketUpdateGuard ticketUpdateGuard;
     private final WebSocketChatController webSocketController;
 
     public EscalationService(ChatModel chatModel,
                              ChatSessionRepository sessionRepository,
                              SupportTicketRepository ticketRepository,
                              SupportTicketService supportTicketService,
+                             TicketUpdateGuard ticketUpdateGuard,
                              WebSocketChatController webSocketController) {
         this.chatModel = chatModel;
         this.sessionRepository = sessionRepository;
         this.ticketRepository = ticketRepository;
         this.supportTicketService = supportTicketService;
+        this.ticketUpdateGuard = ticketUpdateGuard;
         this.webSocketController = webSocketController;
     }
 
@@ -77,6 +80,9 @@ public class EscalationService {
     public SupportTicket escalate(ChatSession session, String triggerMessage, List<ChatMessage> transcript) {
         session.setStatus("ESCALATED");
         sessionRepository.save(session);
+        // Slow AI call happens BEFORE any ticket write so the ticket row is
+        // read and written as late as possible, minimizing the race window
+        // with concurrent agent updates.
         SummaryResult summary = generateSummary(transcript);
         SupportTicket ticket = ticketRepository
                 .findFirstBySessionIdOrderByUpdatedAtDesc(session.getId())
@@ -84,11 +90,15 @@ public class EscalationService {
                 .orElseGet(() -> supportTicketService.open(
                         session.getUserId(), session.getId(),
                         subjectFor(transcript, triggerMessage), triggerMessage));
-        ticket.setStatus(com.codafriqa.ai_customer_support_chatbot.model.TicketStatus.OPEN);
-        ticket.setPriority(priorityForSentiment(summary.sentiment()));
-        ticket.setAiSummary(summary.summary());
-        ticket.setSentiment(summary.sentiment());
-        SupportTicket savedTicket = ticketRepository.save(ticket);
+        // Reload the latest row state inside a dedicated transaction and retry
+        // on concurrent-update conflicts — the agent workspace may be updating
+        // the same ticket (reply / note / takeover) while chat executes.
+        SupportTicket savedTicket = ticketUpdateGuard.mutate(ticket.getId(), latest -> {
+            latest.setStatus(com.codafriqa.ai_customer_support_chatbot.model.TicketStatus.OPEN);
+            latest.setPriority(priorityForSentiment(summary.sentiment()));
+            latest.setAiSummary(summary.summary());
+            latest.setSentiment(summary.sentiment());
+        });
         try {
             webSocketController.broadcastSummary(session.getId(), summary.summary(), summary.sentiment());
         } catch (Exception e) {

@@ -4,6 +4,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -11,6 +12,8 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+import jakarta.persistence.OptimisticLockException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -131,6 +134,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
 
+    @ExceptionHandler({ConcurrencyFailureException.class, OptimisticLockException.class})
+    public ResponseEntity<Map<String, Object>> handleConcurrencyFailure(
+            Exception ex, WebRequest request) {
+        // Concurrent write to the same row (e.g. SupportTicket updated by chat
+        // escalation while an agent reply was in flight). Return a clean 409
+        // instead of the raw JPA/Hibernate stack trace.
+        log.warn("Concurrent update conflict: {}", ex.getMessage(), ex);
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("status", HttpStatus.CONFLICT.value());
+        response.put("error", "Concurrent Update Conflict");
+        response.put("message", "This record was updated by another request while you were "
+                + "working on it. Please refresh and try again.");
+        response.put("path", request.getDescription(false).replace("uri=", ""));
+        return new ResponseEntity<>(response, HttpStatus.CONFLICT);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgumentException(
             IllegalArgumentException ex, WebRequest request) {
@@ -162,21 +182,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         response.put("timestamp", LocalDateTime.now());
         response.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
         response.put("error", "Internal Server Error");
-        String detail = buildFullErrorDetail(ex);
-        response.put("message", detail);
+        // Clean, user-safe message only — the full cause chain (including raw
+        // JPA exceptions) is written to the server log below, never returned
+        // to the client.
+        response.put("message", "An unexpected error occurred. Please try again later.");
         response.put("path", request.getDescription(false).replace("uri=", ""));
         log.error("Unhandled exception: {}", ex.getMessage(), ex);
         return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
-    private static String buildFullErrorDetail(Exception ex) {
-        StringBuilder sb = new StringBuilder();
-        Throwable current = ex;
-        while (current != null) {
-            if (sb.length() > 0) sb.append(" Caused by: ");
-            sb.append(current.getClass().getName()).append(": ").append(current.getMessage());
-            current = current.getCause();
-        }
-        return sb.toString();
     }
 }

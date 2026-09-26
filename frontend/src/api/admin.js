@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { API_BASE } from './client'
 
 /**
  * Axios client for the authenticated admin endpoints (knowledge base).
@@ -7,7 +8,7 @@ import axios from 'axios'
  * both areas. Credentials stay in memory only.
  */
 const adminClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api',
+  baseURL: API_BASE,
   // Do NOT set a global Content-Type header here — axios must be free to
   // set multipart/form-data with the correct boundary when sending FormData
   // (file uploads). For JSON payloads axios auto-sets application/json.

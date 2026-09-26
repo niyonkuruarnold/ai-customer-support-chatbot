@@ -2,9 +2,10 @@
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { useCustomerChatSession } from '../composables/useCustomerChatSession'
 import { fetchSessionInfo, sendChatMessage } from '../api/chat'
+import { API_BASE } from '../api/client'
 import axios from 'axios'
 
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+const apiBase = API_BASE
 
 const { sessionId, initSession, clearSession } = useCustomerChatSession()
 

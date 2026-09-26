@@ -5,6 +5,8 @@ import com.codafriqa.ai_customer_support_chatbot.model.ChatFeedback;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatMessage;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatSession;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketPriority;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketStatus;
 import com.codafriqa.ai_customer_support_chatbot.repository.ChatFeedbackRepository;
 import com.codafriqa.ai_customer_support_chatbot.repository.ChatMessageRepository;
 import com.codafriqa.ai_customer_support_chatbot.repository.ChatSessionRepository;
@@ -54,7 +56,8 @@ public class AnalyticsService {
 
         List<ChatSession> allSessions = sessionRepository.findAll();
         List<ChatSession> sessionsInRange = allSessions.stream()
-                .filter(s -> !s.getCreatedAt().isBefore(startDate) && !s.getCreatedAt().isAfter(endDate))
+                .filter(s -> s.getCreatedAt() != null
+                        && !s.getCreatedAt().isBefore(startDate) && !s.getCreatedAt().isAfter(endDate))
                 .toList();
 
         long totalSessions = sessionsInRange.size();
@@ -73,22 +76,23 @@ public class AnalyticsService {
 
         double avgFrtMinutes = calculateAverageFirstResponseTime(sessionsInRange) / 60.0;
 
-        // Ticket breakdowns
+        // Ticket breakdowns (zeroed on an empty table; legacy status names
+        // that do not exist in the enum simply count 0)
         Map<String, Long> ticketsByStatus = Map.of(
-                "NEW", ticketRepository.countByStatus("NEW"),
-                "OPEN", ticketRepository.countByStatus("OPEN"),
-                "PENDING_CUSTOMER", ticketRepository.countByStatus("PENDING_CUSTOMER"),
-                "PENDING_INTERNAL", ticketRepository.countByStatus("PENDING_INTERNAL"),
-                "RESOLVED", ticketRepository.countByStatus("RESOLVED"),
-                "CLOSED", ticketRepository.countByStatus("CLOSED"),
-                "REOPENED", ticketRepository.countByStatus("REOPENED")
+                "NEW", countStatus("NEW"),
+                "OPEN", countStatus("OPEN"),
+                "PENDING_CUSTOMER", countStatus("PENDING_CUSTOMER"),
+                "PENDING_INTERNAL", countStatus("PENDING_INTERNAL"),
+                "RESOLVED", countStatus("RESOLVED"),
+                "CLOSED", countStatus("CLOSED"),
+                "REOPENED", countStatus("REOPENED")
         );
 
         Map<String, Long> ticketsByPriority = Map.of(
-                "LOW", ticketRepository.countByStatus("LOW"),
-                "MEDIUM", ticketRepository.countByStatus("MEDIUM"),
-                "HIGH", ticketRepository.countByStatus("HIGH"),
-                "URGENT", ticketRepository.countByStatus("URGENT")
+                "LOW", countPriority("LOW"),
+                "MEDIUM", countPriority("MEDIUM"),
+                "HIGH", countPriority("HIGH"),
+                "URGENT", countPriority("URGENT")
         );
 
         return new AnalyticsMetricsDto(
@@ -115,7 +119,8 @@ public class AnalyticsService {
         // Get all sessions in date range
         List<ChatSession> allSessions = sessionRepository.findAll();
         List<ChatSession> sessionsInRange = allSessions.stream()
-            .filter(s -> s.getCreatedAt().isAfter(startDate) && s.getCreatedAt().isBefore(endDate))
+            .filter(s -> s.getCreatedAt() != null
+                    && s.getCreatedAt().isAfter(startDate) && s.getCreatedAt().isBefore(endDate))
             .toList();
 
         long totalSessions = sessionsInRange.size();
@@ -145,33 +150,33 @@ public class AnalyticsService {
 
         // Ticket metrics
         long totalTickets = ticketRepository.count();
-        long openTickets = ticketRepository.countByStatus("OPEN") + 
-                          ticketRepository.countByStatus("IN_PROGRESS") +
-                          ticketRepository.countByStatus("ESCALATED");
-        long resolvedTickets = ticketRepository.countByStatus("RESOLVED");
-        long closedTickets = ticketRepository.countByStatus("CLOSED");
+        long openTickets = countStatus("NEW") +
+                          countStatus("OPEN") +
+                          countStatus("PENDING_CUSTOMER") +
+                          countStatus("PENDING_INTERNAL") +
+                          countStatus("REOPENED");
+        long resolvedTickets = countStatus("RESOLVED");
+        long closedTickets = countStatus("CLOSED");
 
         // Response time by hour (for chart)
         Map<Integer, Long> hourlyDistribution = calculateHourlyDistribution(sessionsInRange);
 
         // Tickets by status
         Map<String, Long> ticketsByStatus = Map.of(
-            "OPEN", ticketRepository.countByStatus("OPEN"),
-            "IN_PROGRESS", ticketRepository.countByStatus("IN_PROGRESS"),
-            "ESCALATED", ticketRepository.countByStatus("ESCALATED"),
-            "PENDING_CUSTOMER", ticketRepository.countByStatus("PENDING_CUSTOMER"),
-            "PENDING_INTERNAL", ticketRepository.countByStatus("PENDING_INTERNAL"),
-            "RESOLVED", ticketRepository.countByStatus("RESOLVED"),
-            "CLOSED", ticketRepository.countByStatus("CLOSED"),
-            "REOPENED", ticketRepository.countByStatus("REOPENED")
+            "OPEN", countStatus("OPEN"),
+            "PENDING_CUSTOMER", countStatus("PENDING_CUSTOMER"),
+            "PENDING_INTERNAL", countStatus("PENDING_INTERNAL"),
+            "RESOLVED", countStatus("RESOLVED"),
+            "CLOSED", countStatus("CLOSED"),
+            "REOPENED", countStatus("REOPENED")
         );
 
         // Tickets by priority
         Map<String, Long> ticketsByPriority = Map.of(
-            "LOW", ticketRepository.countByStatus("LOW"),
-            "MEDIUM", ticketRepository.countByStatus("MEDIUM"),
-            "HIGH", ticketRepository.countByStatus("HIGH"),
-            "URGENT", ticketRepository.countByStatus("URGENT")
+            "LOW", countPriority("LOW"),
+            "MEDIUM", countPriority("MEDIUM"),
+            "HIGH", countPriority("HIGH"),
+            "URGENT", countPriority("URGENT")
         );
 
         return new DashboardMetrics(
@@ -225,7 +230,8 @@ public class AnalyticsService {
     public List<DailyMetric> getDailyTrend(LocalDateTime startDate, LocalDateTime endDate) {
         List<ChatSession> allSessions = sessionRepository.findAll();
         List<ChatSession> sessionsInRange = allSessions.stream()
-            .filter(s -> s.getCreatedAt().isAfter(startDate) && s.getCreatedAt().isBefore(endDate))
+            .filter(s -> s.getCreatedAt() != null
+                    && s.getCreatedAt().isAfter(startDate) && s.getCreatedAt().isBefore(endDate))
             .toList();
 
         // Group by day
@@ -253,6 +259,32 @@ public class AnalyticsService {
     }
 
     /**
+     * Count tickets for a status name.
+     *
+     * <p>Unknown names (e.g. legacy IN_PROGRESS / ESCALATED values that are
+     * not part of the {@link TicketStatus} enum) count as 0 instead of
+     * throwing, so analytics always returns 200.
+     */
+    private long countStatus(String statusName) {
+        try {
+            return ticketRepository.countByStatus(TicketStatus.valueOf(statusName));
+        } catch (IllegalArgumentException ex) {
+            log.debug("Unknown ticket status '{}' — counting 0", statusName);
+            return 0;
+        }
+    }
+
+    /** Count tickets for a priority name; unknown names count as 0. */
+    private long countPriority(String priorityName) {
+        try {
+            return ticketRepository.countByPriority(TicketPriority.valueOf(priorityName));
+        } catch (IllegalArgumentException ex) {
+            log.debug("Unknown ticket priority '{}' — counting 0", priorityName);
+            return 0;
+        }
+    }
+
+    /**
      * Calculate average first response time in seconds.
      */
     private double calculateAverageFirstResponseTime(List<ChatSession> sessions) {
@@ -265,7 +297,8 @@ public class AnalyticsService {
                 // First user message to first AI response
                 ChatMessage userMessage = messages.get(0);
                 ChatMessage aiResponse = messages.get(1);
-                if ("USER".equals(userMessage.getSender()) && "AI".equals(aiResponse.getSender())) {
+                if ("USER".equals(userMessage.getSender()) && "AI".equals(aiResponse.getSender())
+                        && userMessage.getTimestamp() != null && aiResponse.getTimestamp() != null) {
                     long responseTimeSeconds = ChronoUnit.SECONDS.between(
                         userMessage.getTimestamp(), aiResponse.getTimestamp());
                     totalResponseTime += responseTimeSeconds;

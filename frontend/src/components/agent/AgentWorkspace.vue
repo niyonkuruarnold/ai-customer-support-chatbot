@@ -8,8 +8,9 @@ import ChatMessage from '../ChatMessage.vue'
 import TicketTimeline from '../tickets/TicketTimeline.vue'
 import TicketStatusControl from '../tickets/TicketStatusControl.vue'
 import axios from 'axios'
+import { API_BASE } from '../../api/client'
 
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+const apiBase = API_BASE
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },

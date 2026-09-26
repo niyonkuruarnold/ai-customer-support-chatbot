@@ -3,12 +3,12 @@ package com.codafriqa.ai_customer_support_chatbot.controller;
 import com.codafriqa.ai_customer_support_chatbot.dto.AuditLogDto;
 import com.codafriqa.ai_customer_support_chatbot.model.AuditLog;
 import com.codafriqa.ai_customer_support_chatbot.service.AuditLogService;
+import com.codafriqa.ai_customer_support_chatbot.util.DateTimeParams;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -55,14 +55,18 @@ public class AuditLogController {
             @RequestParam(required = false) String actionType,
             @RequestParam(required = false) String actorEmail,
             @RequestParam(required = false) String resourceType,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        
-        Pageable pageable = PageRequest.of(page, size);
+
+        // Lenient date parsing: yyyy-MM-dd or ISO date-time; null when absent.
+        LocalDateTime start = DateTimeParams.parseStart(startDate, null);
+        LocalDateTime end = DateTimeParams.parseEnd(endDate, null);
+
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 500));
         return ResponseEntity.ok(auditLogService.getFilteredLogs(
-            actionType, actorEmail, resourceType, startDate, endDate, pageable));
+            actionType, actorEmail, resourceType, start, end, pageable));
     }
 
     /**

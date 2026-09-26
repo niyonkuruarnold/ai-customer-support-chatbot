@@ -9,6 +9,7 @@ import com.codafriqa.ai_customer_support_chatbot.model.ChatFeedback;
 import com.codafriqa.ai_customer_support_chatbot.service.ChatFeedbackService;
 import com.codafriqa.ai_customer_support_chatbot.service.ChatService;
 import com.codafriqa.ai_customer_support_chatbot.service.RagService;
+import com.codafriqa.ai_customer_support_chatbot.service.TicketUpdateGuard;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -103,27 +104,19 @@ public class ChatController {
         }
 
         private ChatResponseDto errorResponse(Long sessionId, Exception exception) {
-                String detail = buildFullErrorDetail(exception);
-                return new ChatResponseDto(detail, sessionId, null);
-    }
-
-        /**
-         * Build a full error detail string including the cause chain so the
-         * frontend (and logs) show the exact root cause (e.g. a 401 from
-         * Google Gemini API) rather than just the wrapper RuntimeException.
-         */
-        private static String buildFullErrorDetail(Exception exception) {
-                StringBuilder sb = new StringBuilder();
-                Throwable current = exception;
-                while (current != null) {
-                        if (sb.length() > 0) sb.append(" Caused by: ");
-                        sb.append(current.getClass().getName())
-                          .append(": ")
-                          .append(current.getMessage());
-                        current = current.getCause();
+                // Full cause chain stays in the server logs (written by the
+                // catch blocks above) — the customer-facing response must
+                // never expose raw exception/JPA traces.
+                String userMessage;
+                if (TicketUpdateGuard.isConcurrentUpdate(exception)) {
+                        userMessage = "This conversation was just updated by another request, "
+                                + "so your last message wasn't saved. Please try again.";
+                } else {
+                        userMessage = "Sorry, something went wrong while processing your message. "
+                                + "Please try again in a moment.";
                 }
-                return sb.toString();
-    }
+                return new ChatResponseDto(userMessage, sessionId, null);
+        }
 
     /**
      * Fetch dynamically generated suggested questions from the vector store.

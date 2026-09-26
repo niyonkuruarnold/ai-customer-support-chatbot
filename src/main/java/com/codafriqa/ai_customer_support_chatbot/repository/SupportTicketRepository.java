@@ -1,6 +1,8 @@
 package com.codafriqa.ai_customer_support_chatbot.repository;
 
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketPriority;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
@@ -14,7 +16,7 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
     List<SupportTicket> findByUserId(Long userId);
 
     /** All tickets an agent should see: open, escalated, or in progress. */
-    List<SupportTicket> findByStatusInOrderByUpdatedAtDesc(List<String> statuses);
+    List<SupportTicket> findByStatusInOrderByUpdatedAtDesc(List<TicketStatus> statuses);
 
     List<SupportTicket> findBySessionId(Long sessionId);
 
@@ -27,7 +29,7 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
     List<SupportTicket> findByAssignedAgentOrderByUpdatedAtDesc(String assignedAgent);
 
     /** Find tickets by status and priority. */
-    List<SupportTicket> findByStatusAndPriorityOrderByUpdatedAtDesc(String status, String priority);
+    List<SupportTicket> findByStatusAndPriorityOrderByUpdatedAtDesc(TicketStatus status, TicketPriority priority);
 
     /** Find tickets by category. */
     List<SupportTicket> findByCategoryOrderByUpdatedAtDesc(String category);
@@ -35,8 +37,18 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
     /** Find tickets created after a specific date. */
     List<SupportTicket> findByCreatedAtAfterOrderByCreatedAtDesc(java.time.LocalDateTime date);
 
-    /** Count tickets by status. */
-    long countByStatus(String status);
+    /**
+     * Count tickets by status.
+     *
+     * <p>Typed as the {@link TicketStatus} enum to match the entity column —
+     * binding a plain String here made every analytics aggregation fail with
+     * "Argument [X] of type [java.lang.String] did not match parameter type
+     * [TicketStatus]" → HTTP 500.
+     */
+    long countByStatus(TicketStatus status);
+
+    /** Count tickets by priority. */
+    long countByPriority(TicketPriority priority);
 
     /** Count tickets by assigned agent. */
     long countByAssignedAgent(String assignedAgent);

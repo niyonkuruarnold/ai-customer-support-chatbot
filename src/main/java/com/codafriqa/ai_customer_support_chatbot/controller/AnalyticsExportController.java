@@ -4,9 +4,9 @@ import com.codafriqa.ai_customer_support_chatbot.config.AuditAction;
 import com.codafriqa.ai_customer_support_chatbot.dto.AnalyticsMetricsDto;
 import com.codafriqa.ai_customer_support_chatbot.service.AnalyticsService;
 import com.codafriqa.ai_customer_support_chatbot.service.ExportService;
+import com.codafriqa.ai_customer_support_chatbot.util.DateTimeParams;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -41,13 +41,13 @@ public class AnalyticsExportController {
     @AuditAction(action = "DATA_EXPORT", resourceType = "ANALYTICS", description = "Analytics CSV export")
     @GetMapping("/csv")
     public ResponseEntity<byte[]> exportCsv(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
 
-        if (startDate == null) startDate = LocalDateTime.now().minusDays(30);
-        if (endDate == null) endDate = LocalDateTime.now();
+        LocalDateTime start = DateTimeParams.parseStart(startDate, LocalDateTime.now().minusDays(30));
+        LocalDateTime end = DateTimeParams.parseEnd(endDate, LocalDateTime.now());
 
-        AnalyticsMetricsDto metrics = analyticsService.getOperationalMetrics(startDate, endDate);
+        AnalyticsMetricsDto metrics = analyticsService.getOperationalMetrics(start, end);
 
         String csv = exportService.exportAnalyticsToCsv(
                 metrics.aiContainmentRate(),
@@ -74,13 +74,13 @@ public class AnalyticsExportController {
     @AuditAction(action = "DATA_EXPORT", resourceType = "ANALYTICS", description = "Analytics PDF export")
     @GetMapping("/pdf")
     public ResponseEntity<byte[]> exportPdf(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
 
-        if (startDate == null) startDate = LocalDateTime.now().minusDays(30);
-        if (endDate == null) endDate = LocalDateTime.now();
+        LocalDateTime start = DateTimeParams.parseStart(startDate, LocalDateTime.now().minusDays(30));
+        LocalDateTime end = DateTimeParams.parseEnd(endDate, LocalDateTime.now());
 
-        AnalyticsMetricsDto metrics = analyticsService.getOperationalMetrics(startDate, endDate);
+        AnalyticsMetricsDto metrics = analyticsService.getOperationalMetrics(start, end);
 
         byte[] pdf = exportService.exportAnalyticsToPdf(metrics);
 

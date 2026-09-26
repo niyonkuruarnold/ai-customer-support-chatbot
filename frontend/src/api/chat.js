@@ -1,11 +1,12 @@
 import axios from 'axios'
+import { API_BASE } from './client'
 
 /**
  * Axios instance configured to talk to the Spring Boot backend.
  * The base URL can be overridden with VITE_API_BASE_URL in a .env file.
  */
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   // AI responses can take a while to generate, so allow up to 60s
   timeout: 60000,

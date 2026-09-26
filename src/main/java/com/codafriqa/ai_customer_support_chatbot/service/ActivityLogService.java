@@ -5,6 +5,7 @@ import com.codafriqa.ai_customer_support_chatbot.repository.TicketActivityLogRep
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -14,6 +15,13 @@ import java.util.List;
  * Provides methods to log various ticket events with proper before/after state snapshots.
  *
  * All log entries are immutable once created — no update or delete operations are allowed.
+ *
+ * <p>Every write uses {@link Propagation#REQUIRES_NEW}: activity logging is
+ * best-effort, and a failing log insert must roll back only its OWN tiny
+ * transaction. With plain REQUIRED the failure would mark the caller's
+ * transaction rollback-only (the exception is swallowed here), silently
+ * aborting the very ticket update that succeeded — a status change would
+ * 500 and roll back because a log row could not be written.
  */
 @Service
 public class ActivityLogService {
@@ -29,7 +37,7 @@ public class ActivityLogService {
     /**
      * Log a status change event.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logStatusChange(Long ticketId, Long actorId, String actorRole,
                                  String oldStatus, String newStatus) {
         try {
@@ -45,7 +53,7 @@ public class ActivityLogService {
     /**
      * Log a priority change event.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logPriorityChange(Long ticketId, Long actorId, String actorRole,
                                    String oldPriority, String newPriority) {
         try {
@@ -61,7 +69,7 @@ public class ActivityLogService {
     /**
      * Log an assignment change event.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logAssignment(Long ticketId, Long actorId, String actorRole,
                                String oldAssignee, String newAssignee) {
         try {
@@ -77,7 +85,7 @@ public class ActivityLogService {
     /**
      * Log a public reply event.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logPublicReply(Long ticketId, Long actorId, String actorRole, String content) {
         try {
             TicketActivityLog activityLog = TicketActivityLog.publicReply(
@@ -92,7 +100,7 @@ public class ActivityLogService {
     /**
      * Log an internal note event.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logInternalNote(Long ticketId, Long actorId, String actorRole, String content) {
         try {
             TicketActivityLog activityLog = TicketActivityLog.internalNote(
@@ -107,7 +115,7 @@ public class ActivityLogService {
     /**
      * Log a reply or internal note event (convenience method for backward compatibility).
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logReply(Long ticketId, Long actorId, String actorRole,
                           String content, boolean isInternal) {
         if (isInternal) {
@@ -120,7 +128,7 @@ public class ActivityLogService {
     /**
      * Log a ticket reopen event.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logReopen(Long ticketId, Long actorId, String actorRole, String reason) {
         try {
             // Reopen is modeled as a STATUS_CHANGE from RESOLVED/CLOSED -> REOPENED
@@ -137,7 +145,7 @@ public class ActivityLogService {
     /**
      * Log a custom event.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logCustom(Long ticketId, Long actorId, String actorRole, String actionType,
                            String note, boolean customerVisible) {
         try {

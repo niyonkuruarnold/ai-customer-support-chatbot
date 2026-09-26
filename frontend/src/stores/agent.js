@@ -3,6 +3,7 @@ import * as agentApi from '../api/agent'
 import * as adminApi from '../api/admin'
 import { setMaintenanceAuth, clearMaintenanceAuth } from '../api/maintenance'
 import { setAnalyticsAuth, clearAnalyticsAuth } from '../api/analytics'
+import { API_BASE } from '../api/client'
 
 // How often the agent workspace refreshes the ticket queue + the open
 // conversation, so new escalations and customer messages appear live.
@@ -69,7 +70,7 @@ export const useAgentStore = defineStore('agent', {
       this.error = null
       // Fetch the authenticated user's role from the backend
       try {
-        const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+        const apiBase = API_BASE
         const me = await fetch(`${apiBase}/users/me`, {
           headers: { Authorization: `Basic ${btoa(`${username}:${password}`)}` },
         })

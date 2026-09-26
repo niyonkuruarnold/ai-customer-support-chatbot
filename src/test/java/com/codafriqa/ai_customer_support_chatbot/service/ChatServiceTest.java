@@ -82,7 +82,7 @@ class ChatServiceTest {
         boolean escalateCalled = false;
 
         RecordingEscalationService() {
-            super(null, null, null, null, null);
+            super(null, null, null, null, null, null);
         }
 
         @Override

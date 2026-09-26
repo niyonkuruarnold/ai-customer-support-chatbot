@@ -1,5 +1,6 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { API_BASE } from '../api/client'
 
 const status = ref(null)
 const loading = ref(true)
@@ -24,7 +25,7 @@ function timeAgo(dateString) {
 
 async function fetchStatus() {
   try {
-    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+    const base = API_BASE
     const res = await fetch(`${base}/v1/rag/sync-status`)
     if (!res.ok) throw new Error(res.statusText)
     status.value = await res.json()

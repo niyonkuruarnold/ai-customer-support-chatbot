@@ -55,7 +55,6 @@ async function handleStatusChange(newStatus: string) {
   updating.value = true
   try {
     // Use the v1 PATCH endpoint
-    const apiBase = (await import.meta.env.VITE_API_BASE_URL) || 'http://localhost:8080/api'
     // Import dynamically to avoid circular deps — the admin.js functions are fine here
     const { updateTicketStatusV1 } = await import('../../api/admin')
     await updateTicketStatusV1(props.ticketId, newStatus)

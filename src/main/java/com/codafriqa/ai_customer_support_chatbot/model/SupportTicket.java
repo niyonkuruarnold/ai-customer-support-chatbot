@@ -82,6 +82,21 @@ public class SupportTicket {
     @Column(nullable = false)
     private Integer customerReplyCount = 0;
 
+    /**
+     * Optimistic-lock version. Every UPDATE increments it and includes
+     * {@code WHERE version = ?}; a concurrent writer that lost the race gets
+     * {@code StaleObjectStateException} instead of silently overwriting.
+     * Callers retry through {@code TicketUpdateGuard}, which reloads the
+     * latest row before re-applying the change.
+     *
+     * <p>Deliberately nullable in the schema: {@code ddl-auto=update} adds
+     * new columns without a default, so pre-existing rows are backfilled to 0
+     * at startup by {@code SupportTicketVersionBackfill}.
+     */
+    @Version
+    @Column(name = "version")
+    private Long version = 0L;
+
     /** Timestamp when the ticket was last reopened. */
     private LocalDateTime reopenedAt;
 
@@ -171,6 +186,9 @@ public class SupportTicket {
 
     public Integer getCustomerReplyCount() { return customerReplyCount; }
     public void setCustomerReplyCount(Integer customerReplyCount) { this.customerReplyCount = customerReplyCount; }
+
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
 
     public LocalDateTime getReopenedAt() { return reopenedAt; }
     public void setReopenedAt(LocalDateTime reopenedAt) { this.reopenedAt = reopenedAt; }

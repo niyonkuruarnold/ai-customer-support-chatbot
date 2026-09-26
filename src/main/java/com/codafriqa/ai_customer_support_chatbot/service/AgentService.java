@@ -6,6 +6,7 @@ import com.codafriqa.ai_customer_support_chatbot.dto.ChatMessageDto;
 import com.codafriqa.ai_customer_support_chatbot.exception.ResourceNotFoundException;
 import com.codafriqa.ai_customer_support_chatbot.model.ChatMessage;
 import com.codafriqa.ai_customer_support_chatbot.model.SupportTicket;
+import com.codafriqa.ai_customer_support_chatbot.model.TicketStatus;
 import com.codafriqa.ai_customer_support_chatbot.model.User;
 import com.codafriqa.ai_customer_support_chatbot.repository.ChatMessageRepository;
 import com.codafriqa.ai_customer_support_chatbot.repository.SupportTicketRepository;
@@ -23,21 +24,27 @@ import java.util.List;
 public class AgentService {
 
     /** Tickets shown in the agent workspace queue. */
-    private static final List<String> ACTIVE_STATUSES = List.of("OPEN", "ESCALATED", "IN_PROGRESS");
+        private static final List<TicketStatus> ACTIVE_STATUSES = List.of(
+            TicketStatus.OPEN,
+            TicketStatus.PENDING_CUSTOMER,
+            TicketStatus.PENDING_INTERNAL);
 
     private final SupportTicketRepository ticketRepository;
     private final ChatMessageRepository messageRepository;
     private final UserRepository userRepository;
     private final SupportTicketService supportTicketService;
+    private final TicketUpdateGuard ticketUpdateGuard;
 
     public AgentService(SupportTicketRepository ticketRepository,
                         ChatMessageRepository messageRepository,
                         UserRepository userRepository,
-                        SupportTicketService supportTicketService) {
+                        SupportTicketService supportTicketService,
+                        TicketUpdateGuard ticketUpdateGuard) {
         this.ticketRepository = ticketRepository;
         this.messageRepository = messageRepository;
         this.userRepository = userRepository;
         this.supportTicketService = supportTicketService;
+        this.ticketUpdateGuard = ticketUpdateGuard;
     }
 
     public List<AgentTicketDto> listTickets() {
@@ -53,7 +60,9 @@ public class AgentService {
 
     /** Assign the ticket to an agent and mark it in progress (state machine). */
     public AgentTicketDetailDto takeOver(Long id, String agentName) {
-        supportTicketService.takeOver(id, agentName);
+        // Retried because the chat pipeline may concurrently escalate/update
+        // the same ticket; each attempt re-enters the transactional service.
+        ticketUpdateGuard.retry(() -> supportTicketService.takeOver(id, agentName));
         return getTicket(id);
     }
 
@@ -61,22 +70,24 @@ public class AgentService {
     public AgentTicketDetailDto reply(Long id, String agentName, String message) {
         SupportTicket ticket = findTicket(id);
         messageRepository.save(new ChatMessage(ticket.getSessionId(), "AGENT", message));
-        ticket.setUpdatedAt(LocalDateTime.now());
-        ticketRepository.save(ticket);
+        // Reload + touch the latest row state in one transaction (retried on conflict).
+        ticketUpdateGuard.mutate(id, latest -> latest.setUpdatedAt(LocalDateTime.now()));
         return getTicket(id);
     }
 
     /** Add an internal note visible only to agents. */
     public AgentTicketDetailDto addNote(Long id, String content) {
-        SupportTicket ticket = findTicket(id);
-        ticket.getInternalNotes().add(content);
-        ticketRepository.save(ticket);
+        findTicket(id);
+        // The notes element collection is reloaded and mutated inside a single
+        // transaction per attempt — concurrent chat updates to the same ticket
+        // no longer flush against a stale collection snapshot.
+        ticketUpdateGuard.mutate(id, latest -> latest.getInternalNotes().add(content));
         return getTicket(id);
     }
 
     /** Mark the ticket resolved (state machine + customer email). */
     public AgentTicketDetailDto resolve(Long id, String agentName) {
-        supportTicketService.resolve(id, agentName);
+        ticketUpdateGuard.retry(() -> supportTicketService.resolve(id, agentName));
         return getTicket(id);
     }
 

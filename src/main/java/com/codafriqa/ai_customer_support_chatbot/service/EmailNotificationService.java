@@ -7,13 +7,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 /**
  * Automated email notifications for ticket lifecycle events (opened,
  * updated, resolved) via JavaMailSender.
  *
- * Sending is best-effort: any failure is logged and never propagates.
+ * Sending is best-effort and fully asynchronous ({@code @Async}): the calling
+ * thread — and any open database transaction / Hikari connection — is never
+ * blocked on SMTP I/O. SMTP connect/read/write are capped at 5 seconds via
+ * {@code spring.mail.properties.mail.smtp.*timeout} in application.properties.
+ * Failures are logged but never propagate.
  */
 @Service
 public class EmailNotificationService {
@@ -35,6 +40,14 @@ public class EmailNotificationService {
         this.from = from;
     }
 
+    /**
+     * Asynchronous by design ({@code @Async} requires {@code @EnableAsync},
+     * declared on the application class): returns immediately after handing
+     * the message to the task executor, so ticket endpoints never wait on the
+     * mail server. The internal try/catch keeps failures log-only — async
+     * exceptions would otherwise only reach the executor's handler.
+     */
+    @Async
     public void sendTicketNotification(String to, SupportTicket ticket, TicketEvent event) {
         if (to == null || to.isBlank()) {
             log.debug("Skipping {} email for ticket #{}: no customer email on record",

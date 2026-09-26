@@ -8,6 +8,7 @@
 import { ref, onUnmounted } from 'vue'
 import SockJS from 'sockjs-client'
 import { Client } from '@stomp/stompjs'
+import { API_ORIGIN } from '../api/client'
 
 /**
  * WebSocket composable for real-time chat.
@@ -59,9 +60,10 @@ export function useWebSocket(options = {}) {
    * Create a new STOMP client with SockJS fallback.
    */
   function createClient() {
-    const wsUrl = import.meta.env.VITE_WS_URL || 
-                  import.meta.env.VITE_API_BASE_URL?.replace('http', 'ws')?.replace('/api', '') ||
-                  'http://localhost:8080'
+    // Absolute API base → derive the backend origin (ws://host:port).
+    // Same-origin /api → same-origin websocket (relative URL, proxied by
+    // Vite in dev and by Nginx in production).
+    const wsUrl = import.meta.env.VITE_WS_URL || API_ORIGIN || ''
 
     return new Client({
       webSocketFactory: () => new SockJS(`${wsUrl}${brokerUrl}`),

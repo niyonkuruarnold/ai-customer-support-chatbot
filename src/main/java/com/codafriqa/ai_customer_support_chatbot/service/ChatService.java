@@ -177,7 +177,21 @@ public class ChatService {
         // is always created and the session moves to ESCALATED status.
         if (explicitEscalationRequest) {
             List<ChatMessage> transcript = messageRepository.findBySessionIdOrderByTimestampAsc(session.getId());
-            escalationService.escalate(session, userMessage, transcript);
+            try {
+                escalationService.escalate(session, userMessage, transcript);
+            } catch (RuntimeException e) {
+                if (!TicketUpdateGuard.isConcurrentUpdate(e)) {
+                    throw e;
+                }
+                // TicketUpdateGuard already retried with a fresh reload of the
+                // latest ticket row. If another writer still wins the race, do
+                // not fail the chat request: the session is already ESCALATED
+                // and the transcript is persisted, so the agent handoff still
+                // works — only the ticket metadata write was lost.
+                log.warn("Concurrent SupportTicket update while escalating session {} — "
+                        + "chat continues without failing the request: {}",
+                        session.getId(), e.getMessage());
+            }
             
             // Broadcast status change to all subscribers
             try {

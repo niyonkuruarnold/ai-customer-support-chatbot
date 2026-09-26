@@ -9,11 +9,16 @@ import com.codafriqa.ai_customer_support_chatbot.model.User;
 import com.codafriqa.ai_customer_support_chatbot.repository.SupportTicketRepository;
 import com.codafriqa.ai_customer_support_chatbot.repository.UserRepository;
 import jakarta.persistence.criteria.Predicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -22,6 +27,8 @@ import java.util.Locale;
 
 @Service
 public class SupportTicketService {
+
+    private static final Logger log = LoggerFactory.getLogger(SupportTicketService.class);
 
     private final SupportTicketRepository ticketRepository;
     private final UserRepository userRepository;
@@ -38,17 +45,24 @@ public class SupportTicketService {
         this.activityLogService = activityLogService;
     }
 
+    /**
+     * Each mutator below runs in a single transaction so the ticket is loaded,
+     * validated against the state machine, and saved from the same persistence
+     * context — no detached/stale instances are written back.
+     */
+    @Transactional
     public SupportTicket open(Long userId, Long sessionId, String subject, String description) {
         SupportTicket ticket = new SupportTicket(userId, sessionId, subject, description);
         ticket.setStatus(TicketStatus.OPEN);
         ticket = ticketRepository.save(ticket);
         activityLogService.logCustom(ticket.getId(), userId, "CUSTOMER", "CREATED",
             "Ticket created: " + subject, true);
-        emailService.sendTicketNotification(
+        emailAfterCommit(
                 userEmail(userId), ticket, EmailNotificationService.TicketEvent.OPENED);
         return ticket;
     }
 
+    @Transactional
     public SupportTicket takeOver(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
         TicketStatus oldStatus = ticket.getStatus();
@@ -58,11 +72,12 @@ public class SupportTicketService {
         ticket = ticketRepository.save(ticket);
         activityLogService.logStatusChange(ticket.getId(), null, "AGENT", oldStatus.name(), "OPEN");
         activityLogService.logAssignment(ticket.getId(), null, "AGENT", oldAssignee, agentName);
-        emailService.sendTicketNotification(
+        emailAfterCommit(
                 userEmail(ticket.getUserId()), ticket, EmailNotificationService.TicketEvent.UPDATED);
         return ticket;
     }
 
+    @Transactional
     public SupportTicket resolve(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
         TicketStatus oldStatus = ticket.getStatus();
@@ -70,11 +85,12 @@ public class SupportTicketService {
         if (ticket.getAssignedAgent() == null) ticket.setAssignedAgent(agentName);
         ticket = ticketRepository.save(ticket);
         activityLogService.logStatusChange(ticket.getId(), null, "AGENT", oldStatus.name(), "RESOLVED");
-        emailService.sendTicketNotification(
+        emailAfterCommit(
                 userEmail(ticket.getUserId()), ticket, EmailNotificationService.TicketEvent.RESOLVED);
         return ticket;
     }
 
+    @Transactional
     public SupportTicket close(Long id) {
         SupportTicket ticket = findTicket(id);
         TicketStatus oldStatus = ticket.getStatus();
@@ -85,6 +101,7 @@ public class SupportTicketService {
         return ticket;
     }
 
+    @Transactional
     public SupportTicket updateStatus(Long id, String targetStatus) {
         SupportTicket ticket = findTicket(id);
         String normalized = targetStatus.trim().toUpperCase(Locale.ROOT);
@@ -105,11 +122,12 @@ public class SupportTicketService {
         }
         SupportTicket saved = ticketRepository.save(ticket);
         activityLogService.logStatusChange(saved.getId(), null, "ADMIN", oldStatus.name(), newStatus.name());
-        emailService.sendTicketNotification(
+        emailAfterCommit(
                 userEmail(ticket.getUserId()), saved, EmailNotificationService.TicketEvent.UPDATED);
         return saved;
     }
 
+    @Transactional
     public SupportTicket updateAssignedAgent(Long id, String agentName) {
         SupportTicket ticket = findTicket(id);
         String oldAssignee = ticket.getAssignedAgent();
@@ -120,6 +138,7 @@ public class SupportTicketService {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public void deleteTicket(Long id) {
         SupportTicket ticket = findTicket(id);
         ticketRepository.delete(ticket);
@@ -133,6 +152,43 @@ public class SupportTicketService {
                             + " (ticket " + ticket.getId() + ")");
         }
         ticket.setStatus(target);
+    }
+
+    /**
+     * Send the customer notification only AFTER the surrounding transaction
+     * commits. SMTP is slow network I/O and may block for seconds when the
+     * mail server is unreachable — running it inside the transaction would
+     * hold a Hikari pool connection for the duration, and a few concurrent
+     * ticket operations could exhaust the pool so that every other endpoint
+     * (agent activity timeline, chat, …) stops responding. If the transaction
+     * rolls back, no misleading email is sent either.
+     */
+    private void emailAfterCommit(String to, SupportTicket ticket,
+                                  EmailNotificationService.TicketEvent event) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    sendEmailQuietly(to, ticket, event);
+                }
+            });
+        } else {
+            // No active transaction (e.g. plain unit tests) — send immediately.
+            sendEmailQuietly(to, ticket, event);
+        }
+    }
+
+    /** Never let a notification problem (e.g. a rejected async task) fail the caller. */
+    private void sendEmailQuietly(String to, SupportTicket ticket,
+                                  EmailNotificationService.TicketEvent event) {
+        try {
+            // @Async: hands the message to the task executor and returns at
+            // once — no SMTP I/O on the request thread or commit path.
+            emailService.sendTicketNotification(to, ticket, event);
+        } catch (Exception e) {
+            log.warn("Could not schedule {} email for ticket #{}: {}: {}",
+                    event, ticket.getId(), e.getClass().getSimpleName(), e.getMessage());
+        }
     }
 
     private static boolean canTransition(TicketStatus from, TicketStatus to) {
@@ -149,6 +205,7 @@ public class SupportTicketService {
         };
     }
 
+    @Transactional
     public SupportTicket updatePriority(Long id, String newPriority) {
         SupportTicket ticket = findTicket(id);
         TicketPriority oldPriority = ticket.getPriority();
@@ -165,6 +222,7 @@ public class SupportTicketService {
         return ticket;
     }
 
+    @Transactional
     public SupportTicket reopen(Long id, String actorName, String reason) {
         SupportTicket ticket = findTicket(id);
         TicketStatus oldStatus = ticket.getStatus();
@@ -185,10 +243,19 @@ public class SupportTicketService {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (status != null && !status.isBlank()) {
-                predicates.add(cb.equal(root.get("status"), TicketStatus.valueOf(status.trim().toUpperCase(Locale.ROOT))));
+                // Unknown status names (e.g. legacy IN_PROGRESS) match nothing
+                // instead of failing the request — the dashboard then shows
+                // its "No tickets match" empty state with HTTP 200.
+                TicketStatus statusValue = parseStatus(status);
+                predicates.add(statusValue == null
+                        ? cb.disjunction()
+                        : cb.equal(root.get("status"), statusValue));
             }
             if (priority != null && !priority.isBlank()) {
-                predicates.add(cb.equal(root.get("priority"), TicketPriority.valueOf(priority.trim().toUpperCase(Locale.ROOT))));
+                TicketPriority priorityValue = parsePriority(priority);
+                predicates.add(priorityValue == null
+                        ? cb.disjunction()
+                        : cb.equal(root.get("priority"), priorityValue));
             }
             if (assignedAgentId != null) {
                 String agentEmail = userRepository.findById(assignedAgentId).map(User::getEmail).orElse(null);
@@ -208,7 +275,26 @@ public class SupportTicketService {
     }
 
     public long countByStatus(String status) {
-        return ticketRepository.countByStatus(status);
+        TicketStatus statusValue = parseStatus(status);
+        return statusValue == null ? 0 : ticketRepository.countByStatus(statusValue);
+    }
+
+    /** Parse a status name; returns null (match nothing) when unknown. */
+    private TicketStatus parseStatus(String status) {
+        try {
+            return TicketStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    /** Parse a priority name; returns null (match nothing) when unknown. */
+    private TicketPriority parsePriority(String priority) {
+        try {
+            return TicketPriority.valueOf(priority.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     private SupportTicket findTicket(Long id) {

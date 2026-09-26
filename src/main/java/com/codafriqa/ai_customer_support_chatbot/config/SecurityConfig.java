@@ -100,8 +100,8 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/tickets/**", "/api/v1/tickets/**").hasRole("ADMIN")
                 // PATCH (status/agent updates) → ADMIN or AGENT
                 .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/tickets/**", "/api/v1/tickets/**").hasAnyRole("ADMIN", "AGENT")
-                // GET (list/view) → ADMIN or AGENT
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/tickets/**", "/api/v1/tickets/**").hasAnyRole("ADMIN", "AGENT")
+                // GET (list/view) → ADMIN, AGENT or MANAGER
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/tickets/**", "/api/v1/tickets/**").hasAnyRole("ADMIN", "AGENT", "MANAGER")
                 // POST (close, etc.) → ADMIN or AGENT
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/tickets/**", "/api/v1/tickets/**").hasAnyRole("ADMIN", "AGENT")
 
@@ -124,9 +124,12 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration corsConfig = new CorsConfiguration();
         
-        // Allow Vue.js frontend origins
+        // Allow browser origins (dev server and plain-port production hosts)
         corsConfig.setAllowedOrigins(Arrays.asList(
-            "http://localhost:5173",      // Vue dev server
+            "http://localhost:5173",      // Vite dev server
+            "http://127.0.0.1:5173",      // Vite dev server via loopback address
+            "http://localhost",           // Production Nginx on port 80
+            "http://127.0.0.1",           // Production Nginx via loopback on port 80
             "http://localhost:3000",      // Alternative frontend port
             "http://localhost:8081",      // Alternative port
             "https://yourdomain.com"      // Production domain (replace with actual)

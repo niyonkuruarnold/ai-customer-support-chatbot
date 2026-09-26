@@ -5,6 +5,8 @@ import com.codafriqa.ai_customer_support_chatbot.model.*;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.PostRemove;
 import jakarta.persistence.PostUpdate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * JPA entity listener that auto-syncs system entities with the pgvector
@@ -24,31 +26,56 @@ public class SystemDataSyncListener {
 
     @PostPersist
     public void afterCreate(Object entity) {
-        if (!isSupported(entity)) return;
-        try {
-            SpringContextHolder.getBean(SystemDataIndexer.class).syncEntity(entity);
-        } catch (Exception e) {
-            // Fail silently — the entity is already persisted
-        }
+        schedule(entity, false);
     }
 
     @PostUpdate
     public void afterUpdate(Object entity) {
-        if (!isSupported(entity)) return;
-        try {
-            SpringContextHolder.getBean(SystemDataIndexer.class).syncEntity(entity);
-        } catch (Exception e) {
-            // Fail silently — the entity is already persisted
-        }
+        schedule(entity, false);
     }
 
     @PostRemove
     public void afterDelete(Object entity) {
-        if (!isSupported(entity)) return;
+        schedule(entity, true);
+    }
+
+    /**
+     * Vector-store sync must NOT run while the entity's transaction is still
+     * flushing: the index SQL executes on the same JDBC connection, and a
+     * failure there (e.g. an embedding-dimension mismatch) aborts the whole
+     * transaction — Postgres 25P02 "current transaction is aborted" — turning
+     * an otherwise successful entity write into a 500. Deferring to
+     * afterCommit fixes that and also skips pointless reindexes when the
+     * transaction rolls back. The indexer methods are {@code @Async}, so the
+     * request thread never waits on embedding/vector I/O either.
+     */
+    private void schedule(Object entity, boolean removal) {
+        if (!isSupported(entity)) {
+            return;
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    syncQuietly(entity, removal);
+                }
+            });
+        } else {
+            syncQuietly(entity, removal);
+        }
+    }
+
+    /** Best-effort: exceptions must never surface (esp. from afterCommit). */
+    private void syncQuietly(Object entity, boolean removal) {
         try {
-            SpringContextHolder.getBean(SystemDataIndexer.class).removeEntity(entity);
+            SystemDataIndexer indexer = SpringContextHolder.getBean(SystemDataIndexer.class);
+            if (removal) {
+                indexer.removeEntity(entity);
+            } else {
+                indexer.syncEntity(entity);
+            }
         } catch (Exception e) {
-            // Fail silently — the entity is already removed
+            // Fail silently — the entity write already committed successfully.
         }
     }
 

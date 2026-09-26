@@ -1,6 +1,5 @@
 import axios from 'axios'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+import { API_BASE } from './client'
 
 /**
  * Axios client for the maintenance and tool management API.

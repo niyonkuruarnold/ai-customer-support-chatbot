@@ -23,8 +23,12 @@ public class TicketActivityLog {
     @Column(nullable = false)
     private Long ticketId;
 
-    /** The user/agent who performed the action (null for system actions). */
-    @Column(nullable = false)
+    /**
+     * The user/agent who performed the action (null for system actions —
+     * hence the column must be nullable; system/customer-triggered events
+     * legitimately have no actor id).
+     */
+    @Column(name = "actor_id")
     private Long actorId;
 
     /** Role of the actor: CUSTOMER, AGENT, ADMIN, SYSTEM. */

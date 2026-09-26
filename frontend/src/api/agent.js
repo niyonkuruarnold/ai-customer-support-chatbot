@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { API_BASE } from './client'
 
 /**
  * Axios client for the authenticated agent workspace endpoints.
@@ -6,7 +7,7 @@ import axios from 'axios'
  * frontend never persists agent credentials.
  */
 const agentClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })

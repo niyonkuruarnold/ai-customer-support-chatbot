@@ -9,6 +9,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -112,8 +113,16 @@ public class SystemDataIndexer {
         return docs.size();
     }
 
+    /**
+     * Asynchronous ({@code @Async}): called from the entity listeners'
+     * afterCommit hook, this must never block the request thread on the
+     * embedding HTTP call or the vector-store write.
+     */
+    @Async
     public void syncEntity(Object entity) {
         if (!indexingEnabled || !startupIndexingComplete) return;
+        log.debug("Vector sync of {} on thread {}",
+                entity.getClass().getSimpleName(), Thread.currentThread().getName());
         try {
             Document doc = toDocument(entity);
             if (doc == null) return;
@@ -124,6 +133,7 @@ public class SystemDataIndexer {
         }
     }
 
+    @Async
     public void removeEntity(Object entity) {
         if (!indexingEnabled || !startupIndexingComplete) return;
         try {

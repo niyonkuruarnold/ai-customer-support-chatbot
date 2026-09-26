@@ -1,26 +1,26 @@
 import axios from 'axios'
 import { API_BASE } from './client'
+import { attachBearerToken, clearAccessToken, setAccessToken } from './authToken'
 
 /**
  * Axios client for the authenticated agent workspace endpoints.
- * Credentials are sent via HTTP Basic and kept in memory only — the
- * frontend never persists agent credentials.
+ * Bearer credentials are attached at request time and kept in memory only.
  */
 const agentClient = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })
+attachBearerToken(agentClient)
 
-/** Set the HTTP Basic credentials used for all agent requests. */
-export function setAgentAuth(username, password) {
-  agentClient.defaults.headers.common.Authorization =
-    `Basic ${btoa(`${username}:${password}`)}`
+/** Set the shared access token used for authenticated requests. */
+export function setAgentAuth(token) {
+  setAccessToken(token)
 }
 
 /** Clear agent credentials (logout). */
 export function clearAgentAuth() {
-  delete agentClient.defaults.headers.common.Authorization
+  clearAccessToken()
 }
 
 /** Normalize 401 responses into an error carrying `status = 401`. */

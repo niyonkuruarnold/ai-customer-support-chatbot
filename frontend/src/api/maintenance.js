@@ -1,16 +1,17 @@
 import axios from 'axios'
 import { API_BASE } from './client'
+import { attachBearerToken, clearAccessToken, setAccessToken } from './authToken'
 
 /**
  * Axios client for the maintenance and tool management API.
- * Uses HTTP Basic auth — credentials kept in memory and synced via the
- * agent store's login/logout.
+ * Uses the shared in-memory Bearer token from the agent store's login/logout.
  */
 const maintenanceClient = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })
+attachBearerToken(maintenanceClient)
 
 /**
  * Unauthenticated client for permitAll endpoints (e.g. GET /v1/tools).
@@ -23,15 +24,14 @@ const publicClient = axios.create({
   timeout: 30000,
 })
 
-/** Set HTTP Basic credentials for all maintenance requests. */
-export function setMaintenanceAuth(username, password) {
-  maintenanceClient.defaults.headers.common.Authorization =
-    `Basic ${btoa(`${username}:${password}`)}`
+/** Set the shared access token for maintenance requests. */
+export function setMaintenanceAuth(token) {
+  setAccessToken(token)
 }
 
 /** Clear credentials (logout). */
 export function clearMaintenanceAuth() {
-  delete maintenanceClient.defaults.headers.common.Authorization
+  clearAccessToken()
 }
 
 async function request(fn) {

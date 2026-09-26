@@ -92,10 +92,9 @@ describe('TicketDashboard', () => {
     localStorage.clear()
     vi.clearAllMocks()
     useToasts().clear()
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ id: 1, email: 'admin', role: 'ADMIN' }),
-    })
+    global.fetch = vi.fn(async (url) => String(url).endsWith('/auth/token')
+      ? { ok: true, json: async () => ({ accessToken: 'test-access-token' }) }
+      : { ok: true, json: async () => ({ id: 1, email: 'admin', role: 'ADMIN' }) })
     agentApi.fetchTickets.mockResolvedValue([])
     adminApi.fetchTickets.mockResolvedValue(pageResponse([]))
   })
@@ -117,7 +116,7 @@ describe('TicketDashboard', () => {
 
     await signIn(wrapper)
 
-    expect(agentApi.setAgentAuth).toHaveBeenCalledWith('admin', 'admin123')
+    expect(agentApi.setAgentAuth).toHaveBeenCalledWith('test-access-token')
     expect(adminApi.fetchTickets).toHaveBeenCalled()
     expect(wrapper.text()).toContain('Refund request')
     expect(wrapper.text()).toContain('customer@codafriqa.local')

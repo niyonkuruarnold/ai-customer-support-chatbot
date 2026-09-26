@@ -1,11 +1,10 @@
 import axios from 'axios'
 import { API_BASE } from './client'
+import { attachBearerToken, clearAccessToken, setAccessToken } from './authToken'
 
 /**
  * Axios client for the authenticated admin endpoints (knowledge base).
- * Uses the same HTTP Basic credentials as the agent workspace — the agent
- * store's login()/logout() keep this client in sync, so one sign-in covers
- * both areas. Credentials stay in memory only.
+ * Uses the shared in-memory Bearer token from the agent store's login/logout.
  */
 const adminClient = axios.create({
   baseURL: API_BASE,
@@ -14,16 +13,16 @@ const adminClient = axios.create({
   // (file uploads). For JSON payloads axios auto-sets application/json.
   timeout: 120000,
 })
+attachBearerToken(adminClient)
 
-/** Set the HTTP Basic credentials used for all admin requests. */
-export function setAdminAuth(username, password) {
-  adminClient.defaults.headers.common.Authorization =
-    `Basic ${btoa(`${username}:${password}`)}`
+/** Set the shared access token used for all admin requests. */
+export function setAdminAuth(token) {
+  setAccessToken(token)
 }
 
 /** Clear admin credentials (logout). */
 export function clearAdminAuth() {
-  delete adminClient.defaults.headers.common.Authorization
+  clearAccessToken()
 }
 
 /** Normalize 401 responses into an error carrying `status = 401`. */
@@ -83,6 +82,11 @@ export function fetchDocuments() {
 /** GET /admin/documents/chunks -> KnowledgeChunkDto[] (no v1 equivalent) */
 export function fetchChunks() {
   return request(async () => (await adminClient.get('/admin/documents/chunks')).data)
+}
+
+/** POST /admin/vector-stores/reindex -> counts of refreshed KB chunks and system entities */
+export function reindexAllVectorStores() {
+  return request(async () => (await adminClient.post('/admin/vector-stores/reindex')).data)
 }
 
 /** DELETE /v1/admin/knowledge-base/{id} */

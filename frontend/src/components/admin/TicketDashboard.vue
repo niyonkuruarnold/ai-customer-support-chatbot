@@ -392,8 +392,8 @@ async function handleReopen(ticket) {
       >
         <h2 class="text-lg font-semibold text-slate-800">Admin sign in</h2>
         <p class="mt-1 text-sm leading-relaxed text-slate-500">
-          Sign in to view, filter, and manage support tickets. Uses the Spring
-          Security HTTP Basic credentials.
+          Sign in to view, filter, and manage support tickets. Your credentials
+          are exchanged for an access token.
         </p>
         <label class="mt-4 block text-sm font-medium text-slate-700">
           Username

@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { API_BASE } from './client'
+import { attachBearerToken, clearAccessToken, setAccessToken } from './authToken'
 
 /**
  * Axios client for analytics and export endpoints.
@@ -9,20 +10,20 @@ const analyticsClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })
+attachBearerToken(analyticsClient)
 
 /**
- * Set the HTTP Basic credentials used for all requests.
+ * Set the shared access token used for all requests.
  */
-export function setAnalyticsAuth(username, password) {
-  analyticsClient.defaults.headers.common.Authorization =
-    `Basic ${btoa(`${username}:${password}`)}`
+export function setAnalyticsAuth(token) {
+  setAccessToken(token)
 }
 
 /**
  * Clear credentials.
  */
 export function clearAnalyticsAuth() {
-  delete analyticsClient.defaults.headers.common.Authorization
+  clearAccessToken()
 }
 
 // ─── Analytics Endpoints ─────────────────────────────────────────────

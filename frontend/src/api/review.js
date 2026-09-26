@@ -1,26 +1,26 @@
 import axios from 'axios'
 import { API_BASE } from './client'
+import { attachBearerToken, clearAccessToken, setAccessToken } from './authToken'
 
 /**
  * Axios client for the tool review API.
- * Uses HTTP Basic auth — credentials kept in memory and synced via the
- * agent store's login/logout.
+ * Uses the shared in-memory Bearer token from the agent store's login/logout.
  */
 const reviewClient = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })
+attachBearerToken(reviewClient)
 
-/** Set HTTP Basic credentials for all review requests. */
-export function setReviewAuth(username, password) {
-  reviewClient.defaults.headers.common.Authorization =
-    `Basic ${btoa(`${username}:${password}`)}`
+/** Set the shared access token for review requests. */
+export function setReviewAuth(token) {
+  setAccessToken(token)
 }
 
 /** Clear credentials (logout). */
 export function clearReviewAuth() {
-  delete reviewClient.defaults.headers.common.Authorization
+  clearAccessToken()
 }
 
 async function request(fn) {

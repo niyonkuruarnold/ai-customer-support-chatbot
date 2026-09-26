@@ -3,6 +3,8 @@ import * as agentApi from '../api/agent'
 import * as adminApi from '../api/admin'
 import { setMaintenanceAuth, clearMaintenanceAuth } from '../api/maintenance'
 import { setAnalyticsAuth, clearAnalyticsAuth } from '../api/analytics'
+import { setReservationAuth, clearReservationAuth } from '../api/reservation'
+import { setReviewAuth, clearReviewAuth } from '../api/review'
 import { API_BASE } from '../api/client'
 
 // How often the agent workspace refreshes the ticket queue + the open
@@ -59,38 +61,58 @@ export const useAgentStore = defineStore('agent', {
   },
 
   actions: {
-    /** Authenticate with HTTP Basic and load the ticket queue. */
+    /** Exchange credentials for a Bearer token, then load the user's workspace. */
     async login(username, password) {
-      agentApi.setAgentAuth(username, password)
-      // The knowledge base manager reuses the same Basic credentials
-      adminApi.setAdminAuth(username, password)
-      setMaintenanceAuth(username, password)
-      setAnalyticsAuth(username, password)
-      this.agentName = username
+      this.stopPolling()
+      this.authenticated = false
+      this.tickets = []
+      this.activeTicket = null
       this.error = null
-      // Fetch the authenticated user's role from the backend
       try {
-        const apiBase = API_BASE
-        const me = await fetch(`${apiBase}/users/me`, {
-          headers: { Authorization: `Basic ${btoa(`${username}:${password}`)}` },
+        const tokenResponse = await fetch(`${API_BASE}/auth/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
         })
-        if (me.ok) {
-          const profile = await me.json()
-          this.userId = profile.id || null
-          this.userRole = profile.role || 'AGENT'
-          localStorage.setItem('ai-support-chat:role', this.userRole)
-        } else {
-          // Fallback: assume AGENT if /api/users/me is unavailable
-          this.userRole = 'AGENT'
-          localStorage.setItem('ai-support-chat:role', this.userRole)
+        if (!tokenResponse.ok) {
+          const error = new Error('Authentication failed')
+          error.status = tokenResponse.status
+          throw error
         }
-      } catch {
-        this.userRole = 'AGENT'
+        const { accessToken } = await tokenResponse.json()
+        if (!accessToken) throw new Error('Authentication response did not include an access token')
+
+        agentApi.setAgentAuth(accessToken)
+        adminApi.setAdminAuth(accessToken)
+        setMaintenanceAuth(accessToken)
+        setAnalyticsAuth(accessToken)
+        setReservationAuth(accessToken)
+        setReviewAuth(accessToken)
+        this.agentName = username
+
+        const profileResponse = await fetch(`${API_BASE}/users/me`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+        if (!profileResponse.ok) {
+          const error = new Error('Could not load the authenticated user profile')
+          error.status = profileResponse.status
+          throw error
+        }
+        const profile = await profileResponse.json()
+        this.userId = profile.id || null
+        this.userRole = profile.role || 'AGENT'
         localStorage.setItem('ai-support-chat:role', this.userRole)
+        if (this.userRole !== 'CUSTOMER') {
+          await this.fetchTickets({ throwOnError: true })
+          this.authenticated = true
+          this.startPolling()
+        } else {
+          this.authenticated = true
+        }
+      } catch (error) {
+        this.logout()
+        throw error
       }
-      await this.fetchTickets({ throwOnError: true })
-      this.authenticated = true
-      this.startPolling()
     },
 
     /** Dev-only: switch role without backend auth. */
@@ -105,6 +127,8 @@ export const useAgentStore = defineStore('agent', {
       adminApi.clearAdminAuth()
       clearMaintenanceAuth()
       clearAnalyticsAuth()
+      clearReservationAuth()
+      clearReviewAuth()
       this.authenticated = false
       this.agentName = ''
       this.userId = null

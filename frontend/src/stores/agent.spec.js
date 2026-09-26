@@ -66,10 +66,26 @@ function authError(status = 401) {
 describe('agent store', () => {
   let store
 
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     store = useAgentStore()
+    let loginUsername = ''
+    vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith('/auth/token')) {
+        loginUsername = JSON.parse(options.body).username
+        return { ok: true, json: async () => ({ accessToken: `token-${loginUsername}` }) }
+      }
+      const role = loginUsername.startsWith('customer@') ? 'CUSTOMER' : 'AGENT'
+      return {
+        ok: true,
+        json: async () => ({ id: 1, email: loginUsername, role }),
+      }
+    }))
   })
 
   describe('login', () => {
@@ -78,12 +94,21 @@ describe('agent store', () => {
 
       await store.login('sarah', 'secret')
 
-      expect(agentApi.setAgentAuth).toHaveBeenCalledWith('sarah', 'secret')
-      // The knowledge base manager reuses the same Basic credentials
-      expect(adminApi.setAdminAuth).toHaveBeenCalledWith('sarah', 'secret')
+      expect(agentApi.setAgentAuth).toHaveBeenCalledWith('token-sarah')
+      expect(adminApi.setAdminAuth).toHaveBeenCalledWith('token-sarah')
       expect(store.authenticated).toBe(true)
       expect(store.agentName).toBe('sarah')
       expect(store.tickets).toHaveLength(1)
+    })
+
+    it('authenticates a customer without loading or polling staff tickets', async () => {
+      await store.login('customer@codafriqa.local', 'Password123!')
+
+      expect(agentApi.setAgentAuth).toHaveBeenCalledWith('token-customer@codafriqa.local')
+      expect(agentApi.fetchTickets).not.toHaveBeenCalled()
+      expect(store.authenticated).toBe(true)
+      expect(store.userRole).toBe('CUSTOMER')
+      expect(store.pollTimer).toBeNull()
     })
 
     it('stays unauthenticated when credentials are rejected', async () => {

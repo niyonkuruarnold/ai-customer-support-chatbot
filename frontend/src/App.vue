@@ -39,7 +39,16 @@ const VALID_VIEWS = ['chat', 'my-tickets', 'agent', 'tickets', 'reservations', '
 const ROLE_ALLOWED_VIEWS = {
   CUSTOMER: ['chat', 'my-tickets'],
   AGENT: ['chat', 'tickets', 'agent'],
-  ADMIN: ['chat', 'tickets', 'knowledge', 'owner', 'agent', 'reservations'],
+  ADMIN: [
+    'chat',
+    'tickets',
+    'analytics',
+    'audit',
+    'knowledge',
+    'owner',
+    'agent',
+    'reservations',
+  ],
 }
 
 function allowedViewsFor(role) {

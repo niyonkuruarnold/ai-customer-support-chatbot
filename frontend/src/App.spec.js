@@ -22,6 +22,71 @@ vi.mock('./api/chat', async (importOriginal) => {
   }
 })
 
+// The staff dashboards fetch data on mount. Against a live backend these
+// requests answer 401 (no credentials in tests), which flips
+// `agentStore.authenticated` mid-navigation and unmounts the dashboard.
+// Stub the mount-time endpoints so view switching is deterministic.
+vi.mock('./api/admin', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    fetchTickets: vi.fn().mockResolvedValue({
+      content: [],
+      totalElements: 0,
+      totalPages: 0,
+      last: true,
+    }),
+    fetchDocuments: vi.fn().mockResolvedValue([]),
+    fetchChunks: vi.fn().mockResolvedValue([]),
+    getAuditLogsV1: vi.fn().mockResolvedValue({
+      content: [],
+      totalPages: 0,
+      totalElements: 0,
+    }),
+    getFilteredAuditLogsV1: vi.fn().mockResolvedValue({
+      content: [],
+      totalPages: 0,
+      totalElements: 0,
+    }),
+    getOperationalMetrics: vi.fn().mockResolvedValue({}),
+    getDailyTrend: vi.fn().mockResolvedValue([]),
+  }
+})
+
+vi.mock('./api/maintenance', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    getAllTools: vi.fn().mockResolvedValue([]),
+    getToolsByOwner: vi.fn().mockResolvedValue([]),
+  }
+})
+
+// The Live Customer Workspace opens a STOMP/SockJS connection on mount.
+// Keep it stubbed here — these tests cover navbar state, not websockets
+// (useWebSocket has its own spec).
+vi.mock('./composables/useWebSocket', async () => {
+  const { ref } = await import('vue')
+  return {
+    useWebSocket: () => ({
+      isConnected: ref(false),
+      isConnecting: ref(false),
+      connectionQuality: ref('good'),
+      error: ref(null),
+      reconnectAttempts: ref(0),
+      lastConnectedAt: ref(null),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      subscribe: vi.fn(() => 'sub-test'),
+      unsubscribe: vi.fn(),
+      send: vi.fn(),
+      sendChatMessage: vi.fn(),
+      subscribeToSession: vi.fn(),
+      subscribeToAgentChannel: vi.fn(),
+    }),
+  }
+})
+
 function okResponse(overrides = {}) {
   return {
     response: 'How can I help?',
@@ -582,5 +647,101 @@ describe('App', () => {
 
     expect(wrapper.find('[data-test="new-conversation"]').exists()).toBe(true)
     store.stopPolling()
+  })
+
+  // ═══════════════════════════════════════════════════════════════════
+  // STAFF TOP NAVBAR: switching views without a page reload
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Mount the full-screen staff dashboard as an authenticated ADMIN. */
+  async function mountStaffAdmin() {
+    localStorage.setItem('ai-support-chat:role', 'ADMIN')
+    const wrapper = await mountApp()
+    useAgentStore().authenticated = true // skip the staff sign-in gate
+    await flushPromises()
+    return wrapper
+  }
+
+  function navButton(wrapper, label) {
+    return wrapper
+      .find('header nav')
+      .findAll('button')
+      .find((b) => b.text().includes(label))
+  }
+
+  async function clickNav(wrapper, label) {
+    const btn = navButton(wrapper, label)
+    expect(btn, `navbar button "${label}" should exist`).toBeTruthy()
+    await btn.trigger('click')
+    await flushPromises()
+    return navButton(wrapper, label) // re-find: nodes may have been re-rendered
+  }
+
+  it('navigates to every ADMIN view from the Ticket Queue without a reload', async () => {
+    const wrapper = await mountStaffAdmin()
+
+    const tabs = [
+      ['Analytics', 'analytics', 'Service performance metrics and insights'],
+      ['Audit Logs', 'audit', 'System activity and security events'],
+      ['Knowledge Base Admin', 'knowledge', 'Document management'],
+      ['System Indexer', 'owner', 'In Maintenance'],
+      ['Ticket Queue', 'tickets', 'Ticket lifecycle'],
+    ]
+
+    // Start from the Ticket Queue view
+    await clickNav(wrapper, 'Ticket Queue')
+    expect(wrapper.text()).toContain('Ticket lifecycle')
+
+    for (const [label, mode, marker] of tabs) {
+      const btn = await clickNav(wrapper, label)
+
+      // 1. The active tab state updates
+      expect(btn.classes(), `"${label}" active state`).toContain('bg-red-600')
+      // 2. The URL query reflects the new mode (no reload — history API only)
+      expect(window.location.search, `URL after "${label}"`).toContain(`mode=${mode}`)
+      // 3. The view content actually switched
+      expect(wrapper.text(), `"${label}" view content`).toContain(marker)
+    }
+
+    useAgentStore().stopPolling()
+  })
+
+  it('navigates away from the Live Customer Workspace to every other view', async () => {
+    const wrapper = await mountStaffAdmin()
+
+    // Enter the workspace first
+    await clickNav(wrapper, 'Live Customer Workspace')
+    expect(wrapper.text()).toContain('Select a ticket') // workspace empty state
+
+    const tabs = [
+      ['Ticket Queue', 'tickets', 'Ticket lifecycle'],
+      ['Analytics', 'analytics', 'Service performance metrics and insights'],
+      ['Audit Logs', 'audit', 'System activity and security events'],
+      ['Knowledge Base Admin', 'knowledge', 'Document management'],
+      ['System Indexer', 'owner', 'In Maintenance'],
+      ['Live Customer Workspace', 'agent', 'Select a ticket'],
+    ]
+
+    for (const [label, mode, marker] of tabs) {
+      const btn = await clickNav(wrapper, label)
+      expect(btn.classes(), `"${label}" active state`).toContain('bg-red-600')
+      expect(window.location.search, `URL after "${label}"`).toContain(`mode=${mode}`)
+      expect(wrapper.text(), `"${label}" view content`).toContain(marker)
+    }
+
+    useAgentStore().stopPolling()
+  })
+
+  it('deep-links ?mode=analytics for an ADMIN without bouncing to chat', async () => {
+    window.history.replaceState({}, '', `${window.location.pathname}?mode=analytics`)
+    localStorage.setItem('ai-support-chat:role', 'ADMIN')
+
+    const wrapper = await mountApp()
+    useAgentStore().authenticated = true
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Service performance metrics and insights')
+    expect(navButton(wrapper, 'Analytics').classes()).toContain('bg-red-600')
+    useAgentStore().stopPolling()
   })
 })

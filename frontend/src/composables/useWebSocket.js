@@ -39,6 +39,8 @@ export function useWebSocket(options = {}) {
   const lastConnectedAt = ref(null)
 
   let stompClient = null
+  // subId -> { topic, callback, subscription|null } — `subscription` stays
+  // null until the STOMP handshake completes (see activateSubscription).
   let subscriptions = new Map()
   let pendingMessages = [] // Queue for offline messages
   let reconnectTimer = null
@@ -78,7 +80,7 @@ export function useWebSocket(options = {}) {
         // Flush pending messages
         flushPendingMessages()
 
-        // Restore subscriptions
+        // (Re-)register subscriptions now that we have a live connection
         restoreSubscriptions()
 
         onConnect?.()
@@ -146,14 +148,18 @@ export function useWebSocket(options = {}) {
   }
 
   /**
-   * Restore subscriptions after reconnection.
+   * Restore subscriptions after (re)connecting.
+   *
+   * Subscription objects only belong to the connection they were created
+   * on, so every entry is re-registered against the fresh STOMP session.
    */
   function restoreSubscriptions() {
-    const topics = Array.from(subscriptions.keys())
-    if (topics.length === 0) return
-    console.log(`[WebSocket] Restoring ${topics.length} subscriptions`)
-    // Note: callback references need to be re-registered by the component
-    // This is handled by the subscribeToSession/subscribeToAgentChannel methods
+    if (subscriptions.size === 0) return
+    console.log(`[WebSocket] Restoring ${subscriptions.size} subscriptions`)
+    subscriptions.forEach((entry) => {
+      entry.subscription = null
+      activateSubscription(entry)
+    })
   }
 
   /**
@@ -187,10 +193,11 @@ export function useWebSocket(options = {}) {
    * Disconnect from the WebSocket broker.
    */
   function disconnect() {
-    // Unsubscribe from all topics
-    subscriptions.forEach((sub) => {
+    // Unsubscribe from all topics (queued entries have no subscription yet)
+    subscriptions.forEach((entry) => {
+      if (!entry.subscription) return
       try {
-        sub.unsubscribe()
+        entry.subscription.unsubscribe()
       } catch (e) {
         console.debug('[WebSocket] Unsubscribe error (ignored):', e)
       }
@@ -207,30 +214,39 @@ export function useWebSocket(options = {}) {
   }
 
   /**
+   * Register a stored subscription with the live STOMP connection.
+   *
+   * `stompClient.subscribe()` throws "There is no underlying STOMP
+   * connection" until the async handshake finishes, so anything requested
+   * earlier is queued here and flushed from `onConnect`.
+   */
+  function activateSubscription(entry) {
+    if (entry.subscription || !stompClient || !stompClient.connected) return
+    entry.subscription = stompClient.subscribe(entry.topic, (message) => {
+      try {
+        const payload = JSON.parse(message.body)
+        entry.callback(payload)
+      } catch (e) {
+        console.error('[WebSocket] Message parse error:', e)
+      }
+    })
+  }
+
+  /**
    * Subscribe to a topic.
-   * 
+   *
+   * Safe to call before the connection is established — the subscription is
+   * queued and activated automatically once the handshake completes.
+   *
    * @param {string} topic - The topic to subscribe to (e.g., /topic/chat/123)
    * @param {Function} callback - Message callback
    * @returns {string} Subscription ID for unsubscribing
    */
   function subscribe(topic, callback) {
-    if (!stompClient) {
-      console.warn('[WebSocket] Cannot subscribe: not connected')
-      return null
-    }
-
-    const subscription = stompClient.subscribe(topic, (message) => {
-      try {
-        const payload = JSON.parse(message.body)
-        callback(payload)
-      } catch (e) {
-        console.error('[WebSocket] Message parse error:', e)
-      }
-    })
-
     const subId = `sub-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    subscriptions.set(subId, subscription)
-
+    const entry = { topic, callback, subscription: null }
+    subscriptions.set(subId, entry)
+    activateSubscription(entry)
     return subId
   }
 
@@ -240,12 +256,14 @@ export function useWebSocket(options = {}) {
    * @param {string} subId - Subscription ID returned by subscribe()
    */
   function unsubscribe(subId) {
-    const subscription = subscriptions.get(subId)
-    if (subscription) {
-      try {
-        subscription.unsubscribe()
-      } catch (e) {
-        console.debug('[WebSocket] Unsubscribe error (ignored):', e)
+    const entry = subscriptions.get(subId)
+    if (entry) {
+      if (entry.subscription) {
+        try {
+          entry.subscription.unsubscribe()
+        } catch (e) {
+          console.debug('[WebSocket] Unsubscribe error (ignored):', e)
+        }
       }
       subscriptions.delete(subId)
     }

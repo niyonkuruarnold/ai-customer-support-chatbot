@@ -290,8 +290,8 @@ function handleStatusError(ticketId, message) {
         <!-- Ticket list sidebar -->
         <AgentTicketList class="w-72 shrink-0 border-r border-slate-200 bg-white sm:w-80" />
 
-        <!-- Conversation panel -->
-        <section class="flex min-w-0 flex-1 flex-col">
+        <!-- Conversation panel (relative: anchors the floating timeline toggle) -->
+        <section class="relative flex min-w-0 flex-1 flex-col">
 
         <!-- Timeline toggle button (shown when a ticket is active) -->
         <button

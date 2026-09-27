@@ -1,5 +1,6 @@
 package com.codafriqa.ai_customer_support_chatbot;
 
+import com.codafriqa.ai_customer_support_chatbot.config.BearerTokenStore;
 import com.codafriqa.ai_customer_support_chatbot.exception.ResourceNotFoundException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -27,7 +28,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * initialization failure.
  */
 @WebMvcTest(controllers = GlobalExceptionHandlerTest.ProbeController.class)
-@Import(GlobalExceptionHandlerTest.ProbeController.class)
+// The slice auto-registers BearerTokenFilter (any @Component Filter is part
+// of the @WebMvcTest component set) — its in-memory token store has to be
+// provided too, or the context fails to start with an unsatisfied dependency.
+@Import({ GlobalExceptionHandlerTest.ProbeController.class, BearerTokenStore.class })
 @AutoConfigureMockMvc(addFilters = false) // this test covers exception handling, not security
 class GlobalExceptionHandlerTest {
 

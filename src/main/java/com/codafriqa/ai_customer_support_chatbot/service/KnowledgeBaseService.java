@@ -32,6 +32,7 @@ import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -281,6 +282,37 @@ public class KnowledgeBaseService {
                             c.getCreatedAt());
                 })
                 .toList();
+    }
+
+    /** Re-upsert every stored knowledge chunk into the vector store. */
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    public int reindexAll() {
+        Map<Long, KnowledgeDocument> documents = documentRepository.findAll().stream()
+                .collect(Collectors.toMap(KnowledgeDocument::getId, Function.identity()));
+        List<KnowledgeChunk> chunks = chunkRepository.findAllByOrderByIdAsc();
+        List<Document> vectorDocs = new ArrayList<>(chunks.size());
+        LocalDateTime indexedAt = LocalDateTime.now();
+
+        for (KnowledgeChunk chunk : chunks) {
+            KnowledgeDocument document = documents.get(chunk.getDocumentId());
+            if (document == null) continue;
+
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("documentId", document.getId());
+            metadata.put("title", document.getTitle());
+            metadata.put("sourceType", document.getSourceType());
+            metadata.put("chunkIndex", chunk.getChunkIndex());
+            vectorDocs.add(new Document(
+                    vectorIdForChunk(chunk.getId()), chunk.getContent(), metadata));
+            document.setIndexedAt(indexedAt);
+        }
+
+        if (!vectorDocs.isEmpty()) {
+            vectorStore.add(vectorDocs);
+            documentRepository.saveAll(documents.values());
+        }
+        return vectorDocs.size();
     }
 
     /** Remove a document and all of its chunks from the vector store + metadata tables. */

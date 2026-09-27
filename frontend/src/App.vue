@@ -21,6 +21,7 @@ import MyReservations from './components/reservations/MyReservations.vue'
 import { MAX_MESSAGE_LENGTH, useChatStore } from './stores/chat'
 import { useAgentStore } from './stores/agent'
 import { fetchSuggestedQuestions } from './api/chat'
+import { fetchSystemHealth } from './api/health'
 
 const store = useChatStore()
 const agentStore = useAgentStore()
@@ -31,6 +32,12 @@ const feedbackSubmitted = ref(false)
 
 // ── Role constants ─────────────────────────────────────────────────────
 const ROLES = { CUSTOMER: 'CUSTOMER', AGENT: 'AGENT', ADMIN: 'ADMIN' }
+const SWITCHABLE_ACCOUNTS = [
+  { email: 'admin@codafriqa.local', label: 'Admin', role: ROLES.ADMIN, defaultView: 'analytics' },
+  { email: 'agent@codafriqa.local', label: 'Agent', role: ROLES.AGENT, defaultView: 'agent' },
+  { email: 'customer@codafriqa.local', label: 'Customer', role: ROLES.CUSTOMER, defaultView: 'chat' },
+]
+const DEMO_ACCOUNT_PASSWORD = 'Password123!'
 
 // ── View mode: 'chat' | 'my-tickets' | 'agent' | 'knowledge' | 'tickets' | 'reservations' | 'owner'
 const VALID_VIEWS = ['chat', 'my-tickets', 'agent', 'tickets', 'reservations', 'owner', 'knowledge', 'analytics', 'audit']
@@ -73,6 +80,19 @@ function initialView() {
 }
 
 const view = ref(initialView())
+const systemStatus = ref('checking')
+let systemHealthInterval = null
+
+async function refreshSystemStatus() {
+  try {
+    const health = await fetchSystemHealth()
+    systemStatus.value = health.status === 'UP' && health.components?.database?.status === 'UP'
+      ? 'healthy'
+      : 'degraded'
+  } catch {
+    systemStatus.value = 'unavailable'
+  }
+}
 
 function setView(next) {
   const role = agentStore.userRole || ROLES.CUSTOMER
@@ -94,11 +114,18 @@ function setView(next) {
 const isCustomer = computed(() => agentStore.userRole === ROLES.CUSTOMER)
 const isStaff = computed(() => agentStore.userRole === ROLES.AGENT || agentStore.userRole === ROLES.ADMIN)
 
-/** Dev role switcher — updates role and redirects if current view is not allowed */
-function switchRole(newRole) {
-  agentStore.setUserRole(newRole)
-  // For staff roles, ensure we navigate to an allowed view
-  if (!allowedViewsFor(newRole).includes(view.value)) {
+/** Switch the active demo account and open its default workspace. */
+async function switchAccount(email) {
+  const account = SWITCHABLE_ACCOUNTS.find((candidate) => candidate.email === email)
+  if (!account) return
+
+  try {
+    await agentStore.login(account.email, DEMO_ACCOUNT_PASSWORD)
+    expanded.value = false
+    isOpen.value = false
+    setView(account.defaultView)
+  } catch {
+    agentStore.logout()
     setView('chat')
   }
 }
@@ -287,10 +314,33 @@ function resizeInput() {
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`
 }
 
-onMounted(() => store.startPolling())
+/** Start (or restart) the periodic backend health poll for the status pill. */
+function startSystemHealthPolling() {
+  refreshSystemStatus()
+  clearInterval(systemHealthInterval)
+  systemHealthInterval = setInterval(refreshSystemStatus, 30000)
+}
+
+function stopSystemHealthPolling() {
+  clearInterval(systemHealthInterval)
+  systemHealthInterval = null
+}
+
+onMounted(() => {
+  store.startPolling()
+  if (isStaff.value) startSystemHealthPolling()
+})
+
+// The status pill lives in the staff navbar — keep it polling when a demo
+// account switcher moves between customer and staff roles mid-session.
+watch(isStaff, (staff) => {
+  if (staff) startSystemHealthPolling()
+  else stopSystemHealthPolling()
+})
 
 onBeforeUnmount(() => {
   clearTimeout(clearConfirmTimer)
+  stopSystemHealthPolling()
   store.stopPolling()
 })
 
@@ -736,17 +786,17 @@ const staffRoleLabel = computed(() => {
             >
               {{ roleIcon }} {{ roleLabel }}
             </span>
-            <!-- Dev-only role switcher -->
+            <!-- Seeded demo account switcher -->
             <select
-              data-test="role-switcher"
-              :value="agentStore.userRole || 'CUSTOMER'"
-              @change="switchRole($event.target.value)"
+              data-test="account-switcher"
+              :value="SWITCHABLE_ACCOUNTS.find((account) => account.role === agentStore.userRole)?.email || SWITCHABLE_ACCOUNTS[2].email"
+              @change="switchAccount($event.target.value)"
               class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 outline-none transition hover:border-slate-300"
-              aria-label="Switch role (development)"
+              aria-label="Switch demo account"
             >
-              <option value="CUSTOMER">👤 Customer</option>
-              <option value="AGENT">🎧 Agent</option>
-              <option value="ADMIN">🔑 Admin</option>
+              <option v-for="account in SWITCHABLE_ACCOUNTS" :key="account.email" :value="account.email">
+                {{ account.label }} ({{ account.email }})
+              </option>
             </select>
             <!-- New Conversation button -->
             <button
@@ -993,7 +1043,7 @@ const staffRoleLabel = computed(() => {
        ═══════════════════════════════════════════════════════════════════ -->
   <div
     v-else
-    class="flex h-dvh flex-col bg-slate-100 font-sans text-slate-900"
+    class="flex min-h-screen h-auto flex-col bg-slate-100 font-sans text-slate-900"
   >
     <!-- ── Top Navigation Bar ──────────────────────────────────────── -->
     <header class="z-10 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -1045,17 +1095,31 @@ const staffRoleLabel = computed(() => {
           >
             {{ roleIcon }} {{ roleLabel }}
           </span>
-          <!-- Dev-only role switcher -->
-          <select
-            data-test="role-switcher"
-            :value="agentStore.userRole || 'CUSTOMER'"
-            @change="switchRole($event.target.value)"
-            class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 outline-none transition hover:border-slate-300"
-            aria-label="Switch role (development)"
+          <span
+            data-test="system-status"
+            role="status"
+            aria-live="polite"
+            class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+            :class="{
+              'bg-emerald-100 text-emerald-700': systemStatus === 'healthy',
+              'bg-amber-100 text-amber-800': systemStatus === 'degraded',
+              'bg-red-100 text-red-700': systemStatus === 'unavailable',
+              'bg-slate-100 text-slate-600': systemStatus === 'checking',
+            }"
           >
-            <option value="CUSTOMER">👤 Customer</option>
-            <option value="AGENT">🎧 Agent</option>
-            <option value="ADMIN">🔑 Admin</option>
+            System Status: {{ systemStatus === 'healthy' ? 'Healthy' : systemStatus === 'degraded' ? 'Degraded' : systemStatus === 'unavailable' ? 'Unavailable' : 'Checking' }}
+          </span>
+          <!-- Seeded demo account switcher -->
+          <select
+            data-test="account-switcher"
+            :value="SWITCHABLE_ACCOUNTS.find((account) => account.role === agentStore.userRole)?.email || SWITCHABLE_ACCOUNTS[2].email"
+            @change="switchAccount($event.target.value)"
+            class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 outline-none transition hover:border-slate-300"
+            aria-label="Switch demo account"
+          >
+            <option v-for="account in SWITCHABLE_ACCOUNTS" :key="account.email" :value="account.email">
+              {{ account.label }} ({{ account.email }})
+            </option>
           </select>
           <!-- Logout (only when authenticated) -->
           <button
@@ -1094,7 +1158,7 @@ const staffRoleLabel = computed(() => {
         </div>
         <p class="mt-3 text-sm leading-relaxed text-slate-500">
           Sign in to access the {{ staffRoleLabel.toLowerCase() }} workspace.
-          Uses the Spring Security HTTP Basic credentials configured on the backend.
+          Your credentials are exchanged for a short-lived access token.
         </p>
         <label class="mt-4 block text-sm font-medium text-slate-700">
           Username
@@ -1135,7 +1199,7 @@ const staffRoleLabel = computed(() => {
     <!-- ── Dashboard Content (authenticated staff only) ────────────── -->
     <main
       v-else
-      class="min-h-0 flex-1 overflow-hidden"
+      class="min-h-0 flex-1 overflow-y-auto"
     >
       <!-- ── Live Customer Workspace ─────────────────────────────── -->
       <AgentWorkspace

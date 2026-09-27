@@ -113,6 +113,14 @@ public class SystemDataIndexer {
         return docs.size();
     }
 
+    public long reindexAllEntities() {
+        if (!indexingEnabled) {
+            throw new IllegalStateException("Vector indexing is disabled because GEMINI_API_KEY is not configured.");
+        }
+        clearSystemVectors();
+        return indexAllEntities();
+    }
+
     /**
      * Asynchronous ({@code @Async}): called from the entity listeners'
      * afterCommit hook, this must never block the request thread on the

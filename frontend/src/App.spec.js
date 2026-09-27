@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import App from './App.vue'
 import { useChatStore } from './stores/chat'
 import { useAgentStore } from './stores/agent'
+import { fetchSystemHealth } from './api/health'
 import {
   closeChatSession,
   fetchSessionInfo,
@@ -17,10 +18,24 @@ vi.mock('./api/chat', async (importOriginal) => {
     ...actual,
     closeChatSession: vi.fn().mockResolvedValue(undefined),
     fetchSessionInfo: vi.fn(),
+    fetchSuggestedQuestions: vi.fn().mockResolvedValue([]),
     resetBackendSession: vi.fn(),
     sendChatMessage: vi.fn(),
   }
 })
+
+vi.mock('./api/agent', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    fetchTickets: vi.fn().mockResolvedValue([]),
+    setAgentAuth: vi.fn(),
+  }
+})
+
+vi.mock('./api/health', () => ({
+  fetchSystemHealth: vi.fn(),
+}))
 
 // The staff dashboards fetch data on mount. Against a live backend these
 // requests answer 401 (no credentials in tests), which flips
@@ -135,8 +150,18 @@ describe('App', () => {
     // called setView() → window.history.replaceState()
     window.history.replaceState({}, '', window.location.pathname)
     vi.clearAllMocks()
+    let loginUsername = ''
+    vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith('/auth/token')) {
+        loginUsername = JSON.parse(options.body).username
+        return { ok: true, json: async () => ({ accessToken: 'test-access-token' }) }
+      }
+      const role = loginUsername.startsWith('admin@') ? 'ADMIN' : loginUsername.startsWith('customer@') ? 'CUSTOMER' : 'AGENT'
+      return { ok: true, json: async () => ({ id: 1, email: loginUsername, role }) }
+    }))
     fetchSessionInfo.mockResolvedValue({ id: 1, status: 'ACTIVE', messages: [] })
     resetBackendSession.mockResolvedValue(undefined)
+    fetchSystemHealth.mockResolvedValue({ status: 'UP', components: { database: { status: 'UP' } } })
   })
 
   // ═══════════════════════════════════════════════════════════════════
@@ -373,17 +398,22 @@ describe('App', () => {
   })
 
   // ═══════════════════════════════════════════════════════════════════
-  // RBAC: role switcher (via staff dashboard)
+  // Demo account switcher (via staff dashboard)
   // ═══════════════════════════════════════════════════════════════════
 
-  it('shows the role switcher in the staff dashboard header', async () => {
+  it('shows only the three seeded accounts in the staff dashboard header', async () => {
     localStorage.setItem('ai-support-chat:role', 'AGENT')
     const wrapper = await mountApp()
     await flushPromises()
 
-    const switcher = wrapper.find('[data-test="role-switcher"]')
+    const switcher = wrapper.find('[data-test="account-switcher"]')
     expect(switcher.exists()).toBe(true)
-    expect(switcher.element.value).toBe('AGENT')
+    expect(switcher.element.value).toBe('agent@codafriqa.local')
+    expect([...switcher.element.options].map((option) => option.value)).toEqual([
+      'admin@codafriqa.local',
+      'agent@codafriqa.local',
+      'customer@codafriqa.local',
+    ])
   })
 
   it('AGENT role shows staff dashboard with correct tabs', async () => {
@@ -410,21 +440,23 @@ describe('App', () => {
     expect(wrapper.text()).toContain('System Indexer')
   })
 
-  it('switches role via the switcher and updates tabs', async () => {
+  it('authenticates the selected agent account and opens its default workspace', async () => {
     localStorage.setItem('ai-support-chat:role', 'ADMIN')
     const wrapper = await mountApp()
     await flushPromises()
 
-    const switcher = wrapper.find('[data-test="role-switcher"]')
-    await switcher.setValue('AGENT')
+    const switcher = wrapper.find('[data-test="account-switcher"]')
+    await switcher.setValue('agent@codafriqa.local')
     await flushPromises()
 
+    expect(wrapper.find('[data-test="account-switcher"]').element.value).toBe('agent@codafriqa.local')
     expect(wrapper.text()).toContain('Live Customer Workspace')
     expect(wrapper.text()).toContain('Ticket Queue')
     expect(wrapper.text()).not.toContain('Knowledge Base Admin')
+    expect(window.location.search).toContain('mode=agent')
   })
 
-  it('switches role and redirects away from now-forbidden views', async () => {
+  it('authenticates the customer account and routes to chat', async () => {
     localStorage.setItem('ai-support-chat:role', 'ADMIN')
     localStorage.setItem('ai-support-chat:mode', 'knowledge')
     const wrapper = await mountApp()
@@ -432,12 +464,26 @@ describe('App', () => {
 
     expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
 
-    const switcher = wrapper.find('[data-test="role-switcher"]')
-    await switcher.setValue('CUSTOMER')
+    const switcher = wrapper.find('[data-test="account-switcher"]')
+    await switcher.setValue('customer@codafriqa.local')
     await flushPromises()
 
-    // CUSTOMER mode — staff auth form gone, customer FAB may appear
+    expect(window.location.search).not.toContain('mode=knowledge')
     expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="chat-fab"]').exists()).toBe(true)
+  })
+
+  it('authenticates the admin account and routes to its default Analytics workspace', async () => {
+    localStorage.setItem('ai-support-chat:role', 'AGENT')
+    const wrapper = await mountApp()
+    await flushPromises()
+
+    await wrapper.find('[data-test="account-switcher"]').setValue('admin@codafriqa.local')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="account-switcher"]').element.value).toBe('admin@codafriqa.local')
+    expect(window.location.search).toContain('mode=analytics')
+    expect(wrapper.text()).toContain('Service performance metrics and insights')
   })
 
   it('shows the role badge with correct label in customer mode', async () => {
@@ -453,6 +499,7 @@ describe('App', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Agent')
+    expect(wrapper.text()).toContain('System Status: Healthy')
   })
 
   it('shows admin role badge in staff dashboard', async () => {
@@ -657,7 +704,7 @@ describe('App', () => {
   async function mountStaffAdmin() {
     localStorage.setItem('ai-support-chat:role', 'ADMIN')
     const wrapper = await mountApp()
-    useAgentStore().authenticated = true // skip the staff sign-in gate
+    await wrapper.find('[data-test="account-switcher"]').setValue('admin@codafriqa.local')
     await flushPromises()
     return wrapper
   }
@@ -737,7 +784,7 @@ describe('App', () => {
     localStorage.setItem('ai-support-chat:role', 'ADMIN')
 
     const wrapper = await mountApp()
-    useAgentStore().authenticated = true
+    await wrapper.find('[data-test="account-switcher"]').setValue('admin@codafriqa.local')
     await flushPromises()
 
     expect(wrapper.text()).toContain('Service performance metrics and insights')

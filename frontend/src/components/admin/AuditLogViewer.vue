@@ -88,11 +88,17 @@ async function loadLogs() {
       result = await getAuditLogsV1(currentPage.value, pageSize.value)
     }
 
-    logs.value = result.content || []
-    totalPages.value = result.totalPages || 0
-    totalElements.value = result.totalElements || 0
+    // Tolerate bare arrays, null and partial payloads: a successful 200
+    // with no rows must render the empty state, never an error banner.
+    const data = Array.isArray(result) ? { content: result } : (result || {})
+    logs.value = Array.isArray(data.content) ? data.content : []
+    totalPages.value = Number.isFinite(data.totalPages) ? data.totalPages : 0
+    totalElements.value = Number.isFinite(data.totalElements) ? data.totalElements : 0
   } catch (err) {
-    error.value = 'Failed to load audit logs'
+    // The shared Bearer token is attached at request time. A 401 means the session expired.
+    error.value = err?.status === 401
+      ? 'Session expired — please sign in again.'
+      : 'Failed to load audit logs'
     console.error(err)
   } finally {
     loading.value = false

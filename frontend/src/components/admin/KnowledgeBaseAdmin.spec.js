@@ -13,6 +13,7 @@ vi.mock('../../api/admin', () => ({
   addTextDocument: vi.fn(),
   fetchDocuments: vi.fn(),
   fetchChunks: vi.fn(),
+  reindexAllVectorStores: vi.fn(),
   deleteDocument: vi.fn(),
 }))
 
@@ -74,10 +75,9 @@ describe('KnowledgeBaseAdmin', () => {
     localStorage.clear()
     vi.clearAllMocks()
     useToasts().clear()
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ id: 1, email: 'admin', role: 'ADMIN' }),
-    })
+    global.fetch = vi.fn(async (url) => String(url).endsWith('/auth/token')
+      ? { ok: true, json: async () => ({ accessToken: 'test-access-token' }) }
+      : { ok: true, json: async () => ({ id: 1, email: 'admin', role: 'ADMIN' }) })
     adminApi.fetchDocuments.mockResolvedValue([])
     adminApi.fetchChunks.mockResolvedValue([])
     agentApi.fetchTickets.mockResolvedValue([])
@@ -97,14 +97,40 @@ describe('KnowledgeBaseAdmin', () => {
 
   it('loads the knowledge base after a successful sign-in', async () => {
     adminApi.fetchDocuments.mockResolvedValue([document()])
+    adminApi.fetchChunks.mockResolvedValue([{
+      id: 10,
+      documentId: 1,
+      title: 'Shipping policy',
+      sourceType: 'TEXT',
+      chunkIndex: 0,
+      content: 'Shipping content',
+    }])
     const wrapper = await mountPage()
 
     await signIn(wrapper)
 
     expect(wrapper.text()).toContain('Shipping policy')
+    expect(wrapper.text()).toContain('RAG Storage Metrics')
+    expect(wrapper.text()).toContain('1 indexed documents')
+    expect(wrapper.text()).toContain('1 chunks')
     expect(wrapper.text()).toContain('Knowledge Base Admin')
-    expect(agentApi.setAgentAuth).toHaveBeenCalledWith('admin', 'admin123')
+    expect(agentApi.setAgentAuth).toHaveBeenCalledWith('test-access-token')
     expect(adminApi.fetchDocuments).toHaveBeenCalled()
+  })
+
+  it('re-indexes vector stores and reports refreshed counts', async () => {
+    adminApi.reindexAllVectorStores.mockResolvedValue({
+      knowledgeBaseChunks: 3,
+      systemEntities: 8,
+    })
+    const wrapper = await mountPage()
+    await signIn(wrapper)
+
+    await wrapper.find('[data-test="reindex-vector-stores"]').trigger('click')
+    await flushPromises()
+
+    expect(adminApi.reindexAllVectorStores).toHaveBeenCalledOnce()
+    expect(wrapper.text()).toContain('Re-indexed 3 knowledge chunks and 8 system records')
   })
 
   it('rejects invalid credentials with an inline error', async () => {

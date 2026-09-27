@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useKnowledgeBaseStore } from '../../stores/knowledgeBase'
 import { useAgentStore } from '../../stores/agent'
 import { useToasts } from '../../composables/useToasts'
+import * as adminApi from '../../api/admin'
 
 const props = defineProps({
   /** When true, the parent shell provides the header and auth gate. */
@@ -19,6 +20,7 @@ const ACCEPTED = '.txt,.text,.md,.markdown'
 
 const dragActive = ref(false)
 const fileInput = ref(null)
+const reindexing = ref(false)
 
 // Paste-content tab
 const uploadTab = ref('paste') // 'upload' | 'paste'
@@ -157,6 +159,23 @@ async function removeDocument(doc) {
   }
 }
 
+async function reindexAllVectorStores() {
+  reindexing.value = true
+  try {
+    const result = await adminApi.reindexAllVectorStores()
+    await store.fetchAll()
+    push(
+      'success',
+      `Re-indexed ${result.knowledgeBaseChunks} knowledge chunks and ${result.systemEntities} system records.`,
+    )
+  } catch (err) {
+    store.handleError(err)
+    push('error', store.error || 'Could not re-index vector stores.')
+  } finally {
+    reindexing.value = false
+  }
+}
+
 function formatDate(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -248,7 +267,7 @@ function formatDate(value) {
         <h2 class="text-lg font-semibold text-slate-800">Admin sign in</h2>
         <p class="mt-1 text-sm leading-relaxed text-slate-500">
           Sign in to upload and manage the knowledge base the AI assistant
-          answers from. Uses the Spring Security HTTP Basic credentials.
+          answers from. Your credentials are exchanged for an access token.
         </p>
         <label class="mt-4 block text-sm font-medium text-slate-700">
           Username
@@ -294,6 +313,27 @@ function formatDate(value) {
             assistant can answer from them (RAG).
           </p>
         </div>
+
+        <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-800">RAG Storage Metrics</h3>
+              <div class="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+                <p><span class="font-semibold text-slate-900">{{ store.documents.length }}</span> <span class="text-slate-500">indexed documents</span></p>
+                <p><span class="font-semibold text-slate-900">{{ store.totalChunks }}</span> <span class="text-slate-500">chunks</span></p>
+              </div>
+            </div>
+            <button
+              type="button"
+              data-test="reindex-vector-stores"
+              :disabled="reindexing || store.loading || store.uploading"
+              class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              @click="reindexAllVectorStores"
+            >
+              {{ reindexing ? 'Re-indexing…' : 'Re-index All Vector Stores' }}
+            </button>
+          </div>
+        </section>
 
         <!-- Add content tabs -->
         <div class="flex items-center gap-1 rounded-xl bg-slate-100 p-1">

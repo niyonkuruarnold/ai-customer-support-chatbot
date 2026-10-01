@@ -175,7 +175,7 @@ function submit() {
         </button>
 
         <p class="text-center text-xs text-slate-400">
-          Demo accounts — admin / admin123 · agent / agent123
+          Demo accounts: admin | agent
         </p>
       </form>
     </div>

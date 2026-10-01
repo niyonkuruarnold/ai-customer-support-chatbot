@@ -308,9 +308,7 @@ function formatDate(value) {
         <div>
           <h2 class="text-lg font-semibold text-slate-800">Document management</h2>
           <p class="mt-1 text-sm leading-relaxed text-slate-500">
-            Upload Markdown or text support documents — they are parsed, split
-            into chunks, and embedded into PostgreSQL (pgvector) so the AI
-            assistant can answer from them (RAG).
+            Upload knowledge base documents to index them for AI support responses.
           </p>
         </div>
 

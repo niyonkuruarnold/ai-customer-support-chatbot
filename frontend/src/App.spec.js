@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import axios from 'axios'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import App from './App.vue'
@@ -11,6 +12,7 @@ import {
   resetBackendSession,
   sendChatMessage,
 } from './api/chat'
+import { attachBearerToken } from './api/authToken'
 
 vi.mock('./api/chat', async (importOriginal) => {
   const actual = await importOriginal()
@@ -141,6 +143,28 @@ async function expandWidget(wrapper) {
   await expandBtn.trigger('click')
   await flushPromises()
   return true
+}
+
+/** Open the navbar account pill and pick an option from its menu. */
+async function selectAccount(wrapper, email) {
+  await wrapper.find('[data-test="account-switcher"]').trigger('click')
+  await wrapper.find(`[data-test="account-option"][data-value="${email}"]`).trigger('click')
+  await flushPromises()
+}
+
+/** Switch accounts via the dropdown, then complete the password prompt. */
+async function switchAccountAndSignIn(wrapper, email, password = 'Password123!') {
+  await selectAccount(wrapper, email)
+  await wrapper.find('input[autocomplete="current-password"]').setValue(password)
+  await wrapper.find('[data-test="staff-auth-form"]').trigger('submit')
+  await flushPromises()
+}
+
+/** Complete the staff sign-in modal (username is pre-filled by App.vue). */
+async function completeSignIn(wrapper, password = 'Password123!') {
+  await wrapper.find('input[autocomplete="current-password"]').setValue(password)
+  await wrapper.find('[data-test="staff-auth-form"]').trigger('submit')
+  await flushPromises()
 }
 
 describe('App', () => {
@@ -401,19 +425,31 @@ describe('App', () => {
   // Demo account switcher (via staff dashboard)
   // ═══════════════════════════════════════════════════════════════════
 
-  it('shows only the three seeded accounts in the staff dashboard header', async () => {
+  it('shows a compact role pill and keeps emails inside the open menu', async () => {
     localStorage.setItem('ai-support-chat:role', 'AGENT')
     const wrapper = await mountApp()
     await flushPromises()
 
-    const switcher = wrapper.find('[data-test="account-switcher"]')
-    expect(switcher.exists()).toBe(true)
-    expect(switcher.element.value).toBe('agent@codafriqa.local')
-    expect([...switcher.element.options].map((option) => option.value)).toEqual([
+    // Pill: icon + clean label only — no email in the navbar header
+    const pill = wrapper.find('[data-test="account-switcher"]')
+    expect(pill.exists()).toBe(true)
+    expect(pill.text()).toContain('🎧')
+    expect(pill.text()).toContain('Agent')
+    expect(pill.text()).not.toContain('@codafriqa.local')
+    // Full email available as the pill's native tooltip
+    expect(pill.attributes('title')).toBe('agent@codafriqa.local')
+
+    // Menu: the three seeded accounts, email as secondary muted text
+    await pill.trigger('click')
+    expect(wrapper.find('[data-test="account-menu"]').exists()).toBe(true)
+    const options = wrapper.findAll('[data-test="account-option"]')
+    expect(options.map((option) => option.attributes('data-value'))).toEqual([
       'admin@codafriqa.local',
       'agent@codafriqa.local',
       'customer@codafriqa.local',
     ])
+    expect(options[0].text()).toContain('Admin')
+    expect(options[0].text()).toContain('admin@codafriqa.local')
   })
 
   it('AGENT role shows staff dashboard with correct tabs', async () => {
@@ -440,20 +476,36 @@ describe('App', () => {
     expect(wrapper.text()).toContain('System Indexer')
   })
 
-  it('authenticates the selected agent account and opens its default workspace', async () => {
+  it('requires the agent password and opens the workspace once verified', async () => {
     localStorage.setItem('ai-support-chat:role', 'ADMIN')
     const wrapper = await mountApp()
     await flushPromises()
 
-    const switcher = wrapper.find('[data-test="account-switcher"]')
-    await switcher.setValue('agent@codafriqa.local')
-    await flushPromises()
+    await selectAccount(wrapper, 'agent@codafriqa.local')
 
-    expect(wrapper.find('[data-test="account-switcher"]').element.value).toBe('agent@codafriqa.local')
+    // No silent login: the sign-in modal opens with the username pre-filled
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
+    expect(wrapper.find('input[autocomplete="username"]').element.value).toBe(
+      'agent@codafriqa.local',
+    )
+    expect(
+      globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith('/auth/token')),
+    ).toBe(false)
+
+    await completeSignIn(wrapper)
+
+    // The password went through the real token endpoint
+    const tokenCall = globalThis.fetch.mock.calls.find(([url]) => String(url).endsWith('/auth/token'))
+    expect(JSON.parse(tokenCall[1].body)).toEqual({
+      username: 'agent@codafriqa.local',
+      password: 'Password123!',
+    })
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Live Customer Workspace')
     expect(wrapper.text()).toContain('Ticket Queue')
     expect(wrapper.text()).not.toContain('Knowledge Base Admin')
     expect(window.location.search).toContain('mode=agent')
+    useAgentStore().stopPolling()
   })
 
   it('authenticates the customer account and routes to chat', async () => {
@@ -464,26 +516,115 @@ describe('App', () => {
 
     expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
 
-    const switcher = wrapper.find('[data-test="account-switcher"]')
-    await switcher.setValue('customer@codafriqa.local')
-    await flushPromises()
+    await selectAccount(wrapper, 'customer@codafriqa.local')
 
     expect(window.location.search).not.toContain('mode=knowledge')
     expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="chat-fab"]').exists()).toBe(true)
   })
 
-  it('authenticates the admin account and routes to its default Analytics workspace', async () => {
+  it('authenticates the admin account after the password check and routes to Analytics', async () => {
     localStorage.setItem('ai-support-chat:role', 'AGENT')
     const wrapper = await mountApp()
     await flushPromises()
 
-    await wrapper.find('[data-test="account-switcher"]').setValue('admin@codafriqa.local')
-    await flushPromises()
+    await switchAccountAndSignIn(wrapper, 'admin@codafriqa.local')
 
-    expect(wrapper.find('[data-test="account-switcher"]').element.value).toBe('admin@codafriqa.local')
+    expect(wrapper.find('[data-test="account-switcher"]').text()).toContain('Admin')
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
     expect(window.location.search).toContain('mode=analytics')
     expect(wrapper.text()).toContain('Service performance metrics and insights')
+    useAgentStore().stopPolling()
+  })
+
+  it('switches from the customer widget to the Admin workspace after the password check', async () => {
+    const wrapper = await mountApp()
+    await openWidget(wrapper)
+    await expandWidget(wrapper)
+
+    await switchAccountAndSignIn(wrapper, 'admin@codafriqa.local')
+
+    // Navigation guard inputs: role (Pinia + localStorage) + view mode (URL)
+    expect(localStorage.getItem('ai-support-chat:role')).toBe('ADMIN')
+    expect(useAgentStore().userRole).toBe('ADMIN')
+    expect(useAgentStore().accessToken).toBeTruthy()
+    expect(window.location.search).toContain('mode=analytics')
+
+    // Top navigation switched to the staff workspace tabs
+    expect(wrapper.text()).toContain('Live Customer Workspace')
+    expect(wrapper.text()).toContain('Ticket Queue')
+    expect(wrapper.text()).toContain('Analytics')
+    expect(wrapper.text()).toContain('Audit Logs')
+    expect(wrapper.text()).toContain('Knowledge Base Admin')
+    expect(wrapper.text()).toContain('System Indexer')
+    expect(wrapper.text()).not.toContain('My Support Tickets')
+
+    // …and we are no longer in the customer chat UI
+    expect(wrapper.find('[data-test="chat-fab"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
+    useAgentStore().stopPolling()
+  })
+
+  it('keeps the Admin workspace selected when the credential exchange fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
+    const wrapper = await mountApp()
+    await openWidget(wrapper)
+    await expandWidget(wrapper)
+
+    await selectAccount(wrapper, 'admin@codafriqa.local')
+
+    // Never bounced back to Customer Chat
+    expect(wrapper.find('[data-test="chat-fab"]').exists()).toBe(false)
+    expect(localStorage.getItem('ai-support-chat:role')).toBe('ADMIN')
+    expect(useAgentStore().userRole).toBe('ADMIN')
+    expect(window.location.search).toContain('mode=analytics')
+
+    // Staff tabs are reachable behind the sign-in modal
+    expect(wrapper.text()).toContain('Live Customer Workspace')
+    expect(wrapper.text()).toContain('Audit Logs')
+    expect(wrapper.text()).toContain('System Indexer')
+
+    // Submitting the password reports the failure on the modal itself
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
+    await completeSignIn(wrapper)
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Could not reach the backend')
+    expect(useAgentStore().userRole).toBe('ADMIN')
+  })
+
+  it('shows the in-page sign-in card when a protected API answers 401', async () => {
+    localStorage.setItem('ai-support-chat:role', 'ADMIN')
+    const wrapper = await mountApp()
+    await flushPromises()
+
+    // Sign in through the password prompt (username pre-filled for ADMIN)
+    await completeSignIn(wrapper)
+
+    // Session is live: dashboard rendered, no sign-in card
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
+
+    // A protected endpoint rejects the (expired) bearer token. The backend
+    // replies with JSON and no WWW-Authenticate header, so the browser shows
+    // no native Basic dialog — the app's own interceptor takes over.
+    const client = axios.create()
+    attachBearerToken(client)
+    client.defaults.adapter = async () => {
+      const error = new Error('Request failed with status code 401')
+      error.response = { status: 401, data: {}, headers: {}, config: {} }
+      throw error
+    }
+    await client.get('/agent/tickets').catch(() => {})
+    await flushPromises()
+
+    // Custom sign-in card replaces the workspace…
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Admin Sign In')
+    expect(wrapper.text()).toContain('session has expired')
+    // …without bouncing back to Customer Chat
+    expect(wrapper.find('[data-test="chat-fab"]').exists()).toBe(false)
+    expect(window.location.search).toContain('mode=analytics')
+
+    useAgentStore().stopPolling()
   })
 
   it('shows the role badge with correct label in customer mode', async () => {
@@ -530,6 +671,55 @@ describe('App', () => {
 
     expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Admin Sign In')
+  })
+
+  it('routes manual Admin sign-in to the Admin dashboard', async () => {
+    localStorage.setItem('ai-support-chat:role', 'AGENT')
+    const wrapper = await mountApp()
+
+    await wrapper.find('input[autocomplete="username"]').setValue('admin@codafriqa.local')
+    await wrapper.find('input[autocomplete="current-password"]').setValue('Password123!')
+    await wrapper.find('[data-test="staff-auth-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(useAgentStore().userRole).toBe('ADMIN')
+    expect(window.location.search).toContain('mode=analytics')
+    expect(wrapper.text()).toContain('Service performance metrics and insights')
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
+    useAgentStore().stopPolling()
+  })
+
+  it('routes manual Agent sign-in to the Agent workspace', async () => {
+    localStorage.setItem('ai-support-chat:role', 'ADMIN')
+    const wrapper = await mountApp()
+
+    await wrapper.find('input[autocomplete="username"]').setValue('agent@codafriqa.local')
+    await wrapper.find('input[autocomplete="current-password"]').setValue('Password123!')
+    await wrapper.find('[data-test="staff-auth-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(useAgentStore().userRole).toBe('AGENT')
+    expect(window.location.search).toContain('mode=agent')
+    expect(wrapper.text()).toContain('Live Customer Workspace')
+    expect(wrapper.text()).not.toContain('Knowledge Base Admin')
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(false)
+    useAgentStore().stopPolling()
+  })
+
+  it('keeps the selected staff sign-in form visible after rejected credentials', async () => {
+    localStorage.setItem('ai-support-chat:role', 'ADMIN')
+    const wrapper = await mountApp()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }))
+
+    await wrapper.find('input[autocomplete="username"]').setValue('wrong-user')
+    await wrapper.find('input[autocomplete="current-password"]').setValue('wrong-password')
+    await wrapper.find('[data-test="staff-auth-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(useAgentStore().userRole).toBe('ADMIN')
+    expect(wrapper.find('[data-test="staff-auth-form"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Admin Sign In')
+    expect(wrapper.text()).toContain('Invalid credentials')
   })
 
   it('AGENT mode renders full-screen layout without FAB', async () => {
@@ -704,8 +894,8 @@ describe('App', () => {
   async function mountStaffAdmin() {
     localStorage.setItem('ai-support-chat:role', 'ADMIN')
     const wrapper = await mountApp()
-    await wrapper.find('[data-test="account-switcher"]').setValue('admin@codafriqa.local')
     await flushPromises()
+    await completeSignIn(wrapper)
     return wrapper
   }
 
@@ -784,8 +974,8 @@ describe('App', () => {
     localStorage.setItem('ai-support-chat:role', 'ADMIN')
 
     const wrapper = await mountApp()
-    await wrapper.find('[data-test="account-switcher"]').setValue('admin@codafriqa.local')
     await flushPromises()
+    await completeSignIn(wrapper)
 
     expect(wrapper.text()).toContain('Service performance metrics and insights')
     expect(navButton(wrapper, 'Analytics').classes()).toContain('bg-red-600')

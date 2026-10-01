@@ -14,9 +14,11 @@ const POLL_INTERVAL_MS = 5000
 /**
  * Agent workspace store.
  *
- * Agent credentials are held in the Axios client (in memory) and never
- * persisted. A 401 from any request flips `authenticated` back to false so
- * the workspace shows the sign-in form again.
+ * The bearer token is mirrored in `accessToken` (Pinia state) so the
+ * selected account's role + token are visible to guards/devtools, and is
+ * attached to requests by the Axios clients (in memory) — credentials are
+ * never persisted to storage. A 401 from any request flips
+ * `authenticated` back to false so the workspace shows the sign-in form again.
  *
  * While authenticated, the store polls the backend (structured polling —
  * the same mechanism the customer chat uses) so the queue picks up newly
@@ -27,6 +29,8 @@ export const useAgentStore = defineStore('agent', {
   state: () => ({
     agentName: '',
     authenticated: false,
+    /** Bearer token for the authenticated session (in-memory, mirrored here). */
+    accessToken: null,
     userId: null,
     userRole: (() => {
       const stored = localStorage.getItem('ai-support-chat:role')
@@ -61,7 +65,11 @@ export const useAgentStore = defineStore('agent', {
   },
 
   actions: {
-    /** Exchange credentials for a Bearer token, then load the user's workspace. */
+    /**
+     * Exchange username + password for a Bearer token, then load the
+     * user's workspace. The backend always verifies the password — there
+     * is no passwordless sign-in path.
+     */
     async login(username, password) {
       this.stopPolling()
       this.authenticated = false
@@ -88,6 +96,7 @@ export const useAgentStore = defineStore('agent', {
         setAnalyticsAuth(accessToken)
         setReservationAuth(accessToken)
         setReviewAuth(accessToken)
+        this.accessToken = accessToken
         this.agentName = username
 
         const profileResponse = await fetch(`${API_BASE}/users/me`, {
@@ -131,6 +140,7 @@ export const useAgentStore = defineStore('agent', {
       clearReviewAuth()
       this.authenticated = false
       this.agentName = ''
+      this.accessToken = null
       this.userId = null
       this.userRole = 'CUSTOMER'
       try { localStorage.setItem('ai-support-chat:role', 'CUSTOMER') } catch { /* ignore */ }
@@ -281,14 +291,28 @@ export const useAgentStore = defineStore('agent', {
 
     handleAuthFailure(err) {
       if (err?.status === 401) {
-        this.stopPolling()
-        this.authenticated = false
-        this.agentName = ''
-        agentApi.clearAgentAuth()
-        adminApi.clearAdminAuth()
-        clearMaintenanceAuth()
-        clearAnalyticsAuth()
+        this.sessionExpired()
       }
+    },
+
+    /**
+     * The backend rejected our credentials (401 from any authenticated
+     * client — typically an expired bearer token): drop the session so
+     * App.vue swaps the workspace for the in-page sign-in card instead of
+     * letting the request fail silently or the browser raise its native
+     * HTTP Basic dialog.
+     */
+    sessionExpired() {
+      this.stopPolling()
+      this.authenticated = false
+      this.agentName = ''
+      this.accessToken = null
+      agentApi.clearAgentAuth()
+      adminApi.clearAdminAuth()
+      clearMaintenanceAuth()
+      clearAnalyticsAuth()
+      clearReservationAuth()
+      clearReviewAuth()
     },
   },
 })

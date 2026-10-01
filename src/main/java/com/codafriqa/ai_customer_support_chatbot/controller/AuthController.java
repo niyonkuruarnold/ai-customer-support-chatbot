@@ -28,6 +28,13 @@ public class AuthController {
         this.tokenStore = tokenStore;
     }
 
+    /**
+     * Exchange username + password for a Bearer token.
+     *
+     * This is the only sign-in endpoint: the password is always verified by
+     * the AuthenticationManager (in-memory Spring Security users), so no
+     * passwordless shortcut into a staff role exists.
+     */
     @PostMapping("/token")
     public ResponseEntity<?> issueToken(@Valid @RequestBody TokenRequest request) {
         try {

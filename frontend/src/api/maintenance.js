@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { API_BASE } from './client'
-import { attachBearerToken, clearAccessToken, setAccessToken } from './authToken'
+import { attachBearerToken, attachUnauthorizedHandler, clearAccessToken, setAccessToken } from './authToken'
 
 /**
  * Axios client for the maintenance and tool management API.
@@ -23,6 +23,7 @@ const publicClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })
+attachUnauthorizedHandler(publicClient)
 
 /** Set the shared access token for maintenance requests. */
 export function setMaintenanceAuth(token) {

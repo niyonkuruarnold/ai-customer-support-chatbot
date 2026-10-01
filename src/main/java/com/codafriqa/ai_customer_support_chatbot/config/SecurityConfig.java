@@ -1,8 +1,10 @@
 package com.codafriqa.ai_customer_support_chatbot.config;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -107,19 +109,30 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(
                     org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
+            // HTTP Basic is OFF: a Basic challenge (`WWW-Authenticate`) is what
+            // makes browsers pop up their native "Sign in to access this site"
+            // dialog instead of letting the Vue app render its in-page sign-in
+            // card. Credentials are exchanged for a bearer token at
+            // POST /api/auth/token instead.
             .httpBasic(httpBasic -> httpBasic.disable())
-            .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, authException) -> {
-                response.setStatus(org.springframework.http.HttpStatus.UNAUTHORIZED.value());
-                response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-                response.setContentType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
-                response.getWriter().write("{\"status\":401,\"error\":\"Unauthorized\"}");
-            }))
+            .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint((request, response, authException) -> {
+                    // JSON 401 — deliberately WITHOUT a WWW-Authenticate header,
+                    // so the browser never opens its native Basic-Auth popup and
+                    // the frontend can show its own sign-in UI instead.
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.getWriter().write("{\"error\":\"Unauthorized\"}");
+                }))
             .addFilterBefore(bearerTokenFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
                 // Swagger / OpenAPI docs — always accessible
                 .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                 // Chat endpoint — public (anonymous customer sessions)
                 .requestMatchers("/api/chat/**").permitAll()
+                // Token exchange is the ONLY auth endpoint — a password check
+                // is always required (no passwordless shortcut exists).
                 .requestMatchers("/api/auth/token").permitAll()
 
                 // ── Agent workspace (authenticated, role checked at method level) ──

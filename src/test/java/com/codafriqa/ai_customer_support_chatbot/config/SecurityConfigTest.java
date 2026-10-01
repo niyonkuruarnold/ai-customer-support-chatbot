@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *       header is what makes browsers pop up the native "Sign in to access
  *       this site" dialog during role switches).</li>
  *   <li>Unauthorized requests answer with the standard JSON payload
- *       {@code {"status":401,"error":"Unauthorized"}}.</li>
+ *       {@code {"error":"Unauthorized"}}.</li>
  *   <li>Bearer tokens issued by {@link BearerTokenStore} still authenticate,
  *       so the Vue app's Authorization header keeps working.</li>
  * </ul>
@@ -60,8 +60,7 @@ class SecurityConfigTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().doesNotExist("WWW-Authenticate"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(401))
-                .andExpect(jsonPath("$.error").value("Unauthorized"));
+                .andExpect(content().json("{\"error\":\"Unauthorized\"}"));
     }
 
     @Test

@@ -12,6 +12,8 @@ import ChatFeedbackModal from './components/ChatFeedbackModal.vue'
 import SyncStatusBadge from './components/SyncStatusBadge.vue'
 import TypingIndicator from './components/TypingIndicator.vue'
 import AgentWorkspace from './components/agent/AgentWorkspace.vue'
+import AgentSignIn from './components/agent/AgentSignIn.vue'
+import AccountSwitcher from './components/AccountSwitcher.vue'
 import KnowledgeBaseAdmin from './components/admin/KnowledgeBaseAdmin.vue'
 import TicketDashboard from './components/admin/TicketDashboard.vue'
 import OwnerDashboard from './components/admin/OwnerDashboard.vue'
@@ -22,6 +24,7 @@ import { MAX_MESSAGE_LENGTH, useChatStore } from './stores/chat'
 import { useAgentStore } from './stores/agent'
 import { fetchSuggestedQuestions } from './api/chat'
 import { fetchSystemHealth } from './api/health'
+import { registerUnauthorizedHandler } from './api/authToken'
 
 const store = useChatStore()
 const agentStore = useAgentStore()
@@ -33,11 +36,10 @@ const feedbackSubmitted = ref(false)
 // ── Role constants ─────────────────────────────────────────────────────
 const ROLES = { CUSTOMER: 'CUSTOMER', AGENT: 'AGENT', ADMIN: 'ADMIN' }
 const SWITCHABLE_ACCOUNTS = [
-  { email: 'admin@codafriqa.local', label: 'Admin', role: ROLES.ADMIN, defaultView: 'analytics' },
-  { email: 'agent@codafriqa.local', label: 'Agent', role: ROLES.AGENT, defaultView: 'agent' },
-  { email: 'customer@codafriqa.local', label: 'Customer', role: ROLES.CUSTOMER, defaultView: 'chat' },
+  { email: 'admin@codafriqa.local', label: 'Admin', icon: '🔑', role: ROLES.ADMIN, defaultView: 'analytics' },
+  { email: 'agent@codafriqa.local', label: 'Agent', icon: '🎧', role: ROLES.AGENT, defaultView: 'agent' },
+  { email: 'customer@codafriqa.local', label: 'Customer', icon: '👤', role: ROLES.CUSTOMER, defaultView: 'chat' },
 ]
-const DEMO_ACCOUNT_PASSWORD = 'Password123!'
 
 // ── View mode: 'chat' | 'my-tickets' | 'agent' | 'knowledge' | 'tickets' | 'reservations' | 'owner'
 const VALID_VIEWS = ['chat', 'my-tickets', 'agent', 'tickets', 'reservations', 'owner', 'knowledge', 'analytics', 'audit']
@@ -61,6 +63,17 @@ const ROLE_ALLOWED_VIEWS = {
 function allowedViewsFor(role) {
   return ROLE_ALLOWED_VIEWS[role] || ROLE_ALLOWED_VIEWS.CUSTOMER
 }
+
+function defaultViewFor(role) {
+  return SWITCHABLE_ACCOUNTS.find((account) => account.role === role)?.defaultView || 'chat'
+}
+
+/** Email shown selected in the account pill for the current role. */
+const selectedAccountEmail = computed(
+  () =>
+    SWITCHABLE_ACCOUNTS.find((account) => account.role === agentStore.userRole)?.email ||
+    SWITCHABLE_ACCOUNTS[SWITCHABLE_ACCOUNTS.length - 1].email,
+)
 
 function initialView() {
   const param = new URLSearchParams(window.location.search).get('mode')
@@ -114,20 +127,48 @@ function setView(next) {
 const isCustomer = computed(() => agentStore.userRole === ROLES.CUSTOMER)
 const isStaff = computed(() => agentStore.userRole === ROLES.AGENT || agentStore.userRole === ROLES.ADMIN)
 
-/** Switch the active demo account and open its default workspace. */
-async function switchAccount(email) {
+/**
+ * Switch the active account from the navbar dropdown.
+ *
+ * - Customer: instant switch, no password needed (any staff session ends).
+ * - Admin / Agent: entering the workspace ALWAYS requires a typed password.
+ *   The role + view are committed first so the navigation guard opens the
+ *   right tabs, then AgentSignIn opens with the username pre-filled and an
+ *   empty password — nothing is sent to the backend until the user submits
+ *   the sign-in form.
+ */
+function switchAccount(email) {
   const account = SWITCHABLE_ACCOUNTS.find((candidate) => candidate.email === email)
   if (!account) return
 
-  try {
-    await agentStore.login(account.email, DEMO_ACCOUNT_PASSWORD)
-    expanded.value = false
-    isOpen.value = false
+  // Close the customer widget + any stale error, then commit the account.
+  expanded.value = false
+  isOpen.value = false
+  staffLoginError.value = ''
+
+  // Customer: switch instantly — no credentials required.
+  if (account.role === ROLES.CUSTOMER) {
+    if (agentStore.authenticated) agentStore.logout()
+    agentStore.setUserRole(ROLES.CUSTOMER)
     setView(account.defaultView)
-  } catch {
-    agentStore.logout()
-    setView('chat')
+    staffUsername.value = ''
+    staffPassword.value = ''
+    return
   }
+
+  // Same staff account, still signed in → just open its workspace.
+  if (agentStore.authenticated && agentStore.userRole === account.role) {
+    setView(account.defaultView)
+    return
+  }
+
+  // Switching into a staff role: drop any session, commit role + route and
+  // require the password via the sign-in modal (username pre-filled).
+  if (agentStore.authenticated) agentStore.logout()
+  agentStore.setUserRole(account.role)
+  setView(account.defaultView)
+  staffUsername.value = account.email
+  staffPassword.value = ''
 }
 
 // ── Customer: Widget open/close + expand state ─────────────────────────
@@ -147,19 +188,25 @@ function closeWidget() {
 }
 
 // ── Staff: Auth gate ───────────────────────────────────────────────────
-const staffUsername = ref('')
+const staffUsername = ref(
+  // Pre-fill the stored staff role's email so the password is all that's
+  // left to type when the sign-in modal opens.
+  SWITCHABLE_ACCOUNTS.find((account) => account.role === agentStore.userRole)?.email || '',
+)
 const staffPassword = ref('')
 const staffLoginLoading = ref(false)
 const staffLoginError = ref('')
 
 async function handleStaffLogin() {
+  const attemptedRole = agentStore.userRole
   staffLoginLoading.value = true
   staffLoginError.value = ''
   try {
     await agentStore.login(staffUsername.value, staffPassword.value)
-    staffUsername.value = ''
     staffPassword.value = ''
+    setView(defaultViewFor(agentStore.userRole))
   } catch (err) {
+    agentStore.setUserRole(attemptedRole)
     staffLoginError.value =
       err?.status === 401
         ? 'Invalid credentials. Use the Spring Security user (default admin / admin123).'
@@ -173,6 +220,17 @@ function handleStaffLogout() {
   agentStore.logout()
   view.value = 'chat'
 }
+
+// ── Session expiry → in-page sign-in card ─────────────────────────────
+// Every authenticated axios client reports 401s through the shared response
+// interceptor in api/authToken.js. The backend answers with plain JSON and
+// no `WWW-Authenticate` header, so the browser never raises its native Basic
+// dialog — we drop the session and render the custom sign-in card instead.
+const unregisterUnauthorizedHandler = registerUnauthorizedHandler(() => {
+  if (!agentStore.authenticated) return
+  agentStore.sessionExpired()
+  staffLoginError.value = 'Your session has expired. Sign in again to continue.'
+})
 
 // ── New Conversation confirmation modal ──────────────────────────────
 const showNewChatModal = ref(false)
@@ -339,6 +397,7 @@ watch(isStaff, (staff) => {
 })
 
 onBeforeUnmount(() => {
+  unregisterUnauthorizedHandler()
   clearTimeout(clearConfirmTimer)
   stopSystemHealthPolling()
   store.stopPolling()
@@ -365,7 +424,11 @@ const ROLE_NAV_ITEMS = {
 }
 
 const navItems = computed(() => {
-  return ROLE_NAV_ITEMS[agentStore.userRole || ROLES.CUSTOMER]
+  // Unknown/legacy roles fall back to the customer tabs instead of an
+  // empty navbar — the view guard treats them as CUSTOMER too.
+  return (
+    ROLE_NAV_ITEMS[agentStore.userRole] || ROLE_NAV_ITEMS[ROLES.CUSTOMER]
+  )
 })
 
 /** Human-readable role label for the badge */
@@ -373,16 +436,6 @@ const roleLabel = computed(() => {
   if (agentStore.isAdmin) return 'Admin'
   if (agentStore.isAgent) return 'Agent'
   return 'Customer'
-})
-const roleBadgeClass = computed(() => {
-  if (agentStore.isAdmin) return 'bg-violet-100 text-violet-700'
-  if (agentStore.isAgent) return 'bg-sky-100 text-sky-700'
-  return 'bg-slate-100 text-slate-600'
-})
-const roleIcon = computed(() => {
-  if (agentStore.isAdmin) return '🔑'
-  if (agentStore.isAgent) return '🎧'
-  return '👤'
 })
 
 // ── Staff role label for auth form ─────────────────────────────────────
@@ -751,7 +804,7 @@ const staffRoleLabel = computed(() => {
             </button>
           </nav>
 
-          <!-- Spacer + role badge + dev role switcher + controls -->
+          <!-- Spacer + account switcher + controls -->
           <div class="ml-auto flex items-center gap-2">
             <SyncStatusBadge v-if="view === 'chat'" />
             <!-- Status Badge in header -->
@@ -780,24 +833,13 @@ const staffRoleLabel = computed(() => {
                   : 'AI Assistant'
               }}
             </span>
-            <span
-              class="hidden rounded-full px-2.5 py-1 text-[11px] font-medium sm:inline-block"
-              :class="roleBadgeClass"
-            >
-              {{ roleIcon }} {{ roleLabel }}
-            </span>
-            <!-- Seeded demo account switcher -->
-            <select
-              data-test="account-switcher"
-              :value="SWITCHABLE_ACCOUNTS.find((account) => account.role === agentStore.userRole)?.email || SWITCHABLE_ACCOUNTS[2].email"
-              @change="switchAccount($event.target.value)"
-              class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 outline-none transition hover:border-slate-300"
-              aria-label="Switch demo account"
-            >
-              <option v-for="account in SWITCHABLE_ACCOUNTS" :key="account.email" :value="account.email">
-                {{ account.label }} ({{ account.email }})
-              </option>
-            </select>
+            <!-- Compact account switcher: pill shows "🔑 Admin" etc.;
+                 emails live inside the open menu as muted text -->
+            <AccountSwitcher
+              :accounts="SWITCHABLE_ACCOUNTS"
+              :selected-email="selectedAccountEmail"
+              @select="switchAccount"
+            />
             <!-- New Conversation button -->
             <button
               v-if="view === 'chat' && (store.hasMessages || store.isEscalated)"
@@ -1046,7 +1088,7 @@ const staffRoleLabel = computed(() => {
     class="flex min-h-screen h-auto flex-col bg-slate-100 font-sans text-slate-900"
   >
     <!-- ── Top Navigation Bar ──────────────────────────────────────── -->
-    <header class="z-10 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <header class="z-[95] shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-5 py-3 sm:px-6">
         <!-- Brand -->
         <div class="flex items-center gap-3">
@@ -1087,14 +1129,8 @@ const staffRoleLabel = computed(() => {
           </button>
         </nav>
 
-        <!-- Spacer + role badge + dev role switcher + controls -->
+        <!-- Spacer + account switcher + controls -->
         <div class="ml-auto flex items-center gap-2">
-          <span
-            class="hidden rounded-full px-2.5 py-1 text-[11px] font-medium sm:inline-block"
-            :class="roleBadgeClass"
-          >
-            {{ roleIcon }} {{ roleLabel }}
-          </span>
           <span
             data-test="system-status"
             role="status"
@@ -1109,18 +1145,13 @@ const staffRoleLabel = computed(() => {
           >
             System Status: {{ systemStatus === 'healthy' ? 'Healthy' : systemStatus === 'degraded' ? 'Degraded' : systemStatus === 'unavailable' ? 'Unavailable' : 'Checking' }}
           </span>
-          <!-- Seeded demo account switcher -->
-          <select
-            data-test="account-switcher"
-            :value="SWITCHABLE_ACCOUNTS.find((account) => account.role === agentStore.userRole)?.email || SWITCHABLE_ACCOUNTS[2].email"
-            @change="switchAccount($event.target.value)"
-            class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 outline-none transition hover:border-slate-300"
-            aria-label="Switch demo account"
-          >
-            <option v-for="account in SWITCHABLE_ACCOUNTS" :key="account.email" :value="account.email">
-              {{ account.label }} ({{ account.email }})
-            </option>
-          </select>
+          <!-- Compact account switcher: pill shows "🔑 Admin" etc.;
+               emails live inside the open menu as muted text -->
+          <AccountSwitcher
+            :accounts="SWITCHABLE_ACCOUNTS"
+            :selected-email="selectedAccountEmail"
+            @select="switchAccount"
+          />
           <!-- Logout (only when authenticated) -->
           <button
             v-if="agentStore.authenticated"
@@ -1134,66 +1165,22 @@ const staffRoleLabel = computed(() => {
       </div>
     </header>
 
-    <!-- ── Auth Gate (inline modal for unauthenticated staff) ──────── -->
+    <!-- ── Auth Gate: custom in-page sign-in card (AgentSignIn) ──── -->
+    <!-- Rendered instead of the browser's native Basic-Auth dialog: the
+         backend answers 401s with plain JSON and no WWW-Authenticate
+         header, so App.vue's session-expiry handler lands here. -->
     <div
       v-if="!agentStore.authenticated"
       class="flex flex-1 items-center justify-center p-4"
     >
-      <form
-        data-test="staff-auth-form"
-        class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-        @submit.prevent="handleStaffLogin"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-700 to-slate-900 text-lg text-white shadow-md"
-            aria-hidden="true"
-          >
-            {{ agentStore.userRole === ROLES.ADMIN ? '🔑' : '🎧' }}
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold text-slate-800">{{ staffRoleLabel }} Sign In</h2>
-            <p class="text-xs text-slate-500">Staff credentials required</p>
-          </div>
-        </div>
-        <p class="mt-3 text-sm leading-relaxed text-slate-500">
-          Sign in to access the {{ staffRoleLabel.toLowerCase() }} workspace.
-          Your credentials are exchanged for a short-lived access token.
-        </p>
-        <label class="mt-4 block text-sm font-medium text-slate-700">
-          Username
-          <input
-            v-model="staffUsername"
-            type="text"
-            autocomplete="username"
-            required
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
-          />
-        </label>
-        <label class="mt-3 block text-sm font-medium text-slate-700">
-          Password
-          <input
-            v-model="staffPassword"
-            type="password"
-            autocomplete="current-password"
-            required
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
-          />
-        </label>
-        <p v-if="staffLoginError" class="mt-3 text-sm text-red-600" role="alert">
-          {{ staffLoginError }}
-        </p>
-        <button
-          type="submit"
-          :disabled="staffLoginLoading"
-          class="mt-5 w-full rounded-lg bg-red-600 py-2.5 text-sm font-semibold text-white transition enabled:hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {{ staffLoginLoading ? 'Signing in…' : 'Sign in' }}
-        </button>
-        <p class="mt-3 text-center text-xs text-slate-400">
-          Default: admin / admin123
-        </p>
-      </form>
+      <AgentSignIn
+        v-model:username="staffUsername"
+        v-model:password="staffPassword"
+        :role-label="staffRoleLabel"
+        :loading="staffLoginLoading"
+        :error="staffLoginError"
+        @submit="handleStaffLogin"
+      />
     </div>
 
     <!-- ── Dashboard Content (authenticated staff only) ────────────── -->

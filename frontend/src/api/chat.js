@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { API_BASE } from './client'
+import { attachUnauthorizedHandler } from './authToken'
 
 /**
  * Axios instance configured to talk to the Spring Boot backend.
@@ -11,6 +12,7 @@ const apiClient = axios.create({
   // AI responses can take a while to generate, so allow up to 60s
   timeout: 60000,
 })
+attachUnauthorizedHandler(apiClient)
 
 /**
  * Send a chat message to the backend. The backend persists the message in a

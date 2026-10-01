@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { API_BASE } from './client'
+import { attachUnauthorizedHandler } from './authToken'
 
 /**
  * Axios instance configured to talk to the Spring Boot backend.
@@ -9,6 +10,7 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
   timeout: 10000,
 })
+attachUnauthorizedHandler(apiClient)
 
 /**
  * Submit CSAT feedback for a chat session.

@@ -111,6 +111,20 @@ describe('agent store', () => {
       expect(store.pollTimer).toBeNull()
     })
 
+    it('sends the seeded password so the backend verifies every login', async () => {
+      agentApi.fetchTickets.mockResolvedValue([])
+
+      await store.login('agent@codafriqa.local', 'Password123!')
+
+      const tokenCall = globalThis.fetch.mock.calls.find(([url]) => String(url).endsWith('/auth/token'))
+      expect(JSON.parse(tokenCall[1].body)).toEqual({
+        username: 'agent@codafriqa.local',
+        password: 'Password123!',
+      })
+      expect(store.authenticated).toBe(true)
+      expect(store.userRole).toBe('AGENT')
+    })
+
     it('stays unauthenticated when credentials are rejected', async () => {
       agentApi.fetchTickets.mockRejectedValue(authError(401))
 

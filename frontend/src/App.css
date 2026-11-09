@@ -1,0 +1,704 @@
+﻿.app-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 28px;
+}
+
+.panel {
+  position: relative;
+  padding: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.06);
+}
+
+.panel-glass {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92)),
+    rgba(255, 255, 255, 0.88);
+}
+
+.top-shell {
+  overflow: hidden;
+}
+
+.topbar-row,
+.topbar-actions,
+.section-heading,
+.section-heading-wrap,
+.hero-pill-row,
+.ticket-title-row,
+.ticket-meta-row,
+.meta-row,
+.knowledge-header,
+.workflow-top,
+.agent-top,
+.chat-meta,
+.composer-row,
+.action-row,
+.panel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.topbar-row {
+  align-items: flex-start;
+}
+
+.topbar-actions,
+.hero-pill-row,
+.panel-controls,
+.action-row,
+.meta-row,
+.ticket-meta-row {
+  flex-wrap: wrap;
+}
+
+.hero-grid,
+.quick-actions,
+.metrics-grid,
+.workspace-grid,
+.chart-summary-grid,
+.case-meta-grid,
+.intelligence-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.hero-grid {
+  grid-template-columns: 1.45fr 1fr 0.85fr;
+  margin-top: 28px;
+}
+
+.hero-card,
+.ticket-card,
+.knowledge-card,
+.workflow-card,
+.agent-card,
+.mini-card,
+.focus-item,
+.mini-stat-card,
+.journey-card,
+.metric-card {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  background: #f8fafc;
+}
+
+.hero-card,
+.ticket-card,
+.knowledge-card,
+.workflow-card,
+.agent-card,
+.mini-card,
+.focus-item,
+.journey-card {
+  padding: 18px;
+}
+
+.hero-copy-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hero-focus-card,
+.hero-score-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hero-text,
+.focus-item p,
+.ticket-card p,
+.knowledge-card p,
+.workflow-card p,
+.agent-card p,
+.activity-item p,
+.mini-card p,
+.journey-card small,
+.hero-score-card p,
+.empty-state p,
+.case-overview p,
+.channel-panel p,
+.muted-text {
+  color: var(--muted);
+}
+
+.focus-list,
+.stack-list,
+.activity-list,
+.agent-list,
+.knowledge-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.focus-item {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 12px;
+}
+
+.focus-index {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--brand-strong);
+}
+
+.stat-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.stat-line {
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.stat-line span,
+.stat-line small,
+.mini-stat-card span,
+.journey-card span {
+  display: block;
+  color: var(--muted);
+}
+
+.stat-line strong,
+.metric-card strong,
+.case-overview strong,
+.ticket-card strong,
+.knowledge-card strong,
+.workflow-card strong,
+.agent-card strong,
+.mini-card strong,
+.journey-card strong,
+.hero-score-card strong,
+.mini-stat-card strong {
+  color: var(--text-strong);
+}
+
+.hero-score-card > strong {
+  font-size: 3.2rem;
+  line-height: 0.95;
+}
+
+.quick-actions {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.metrics-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.workspace-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.panel-span-7 {
+  grid-column: span 7;
+}
+
+.panel-span-5 {
+  grid-column: span 5;
+}
+
+.panel-span-12 {
+  grid-column: span 12;
+}
+
+.metric-card {
+  min-height: 148px;
+}
+
+.metric-card strong {
+  display: block;
+  margin: 10px 0 8px;
+  font-size: 2rem;
+}
+
+.eyebrow,
+.mini-label {
+  display: inline-block;
+  font-size: 0.74rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mini-label {
+  margin-bottom: 6px;
+}
+
+.status-pill,
+.badge,
+.segmented-button,
+.soft-button,
+.primary-button,
+.pin-button {
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 600;
+}
+
+.status-pill,
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0.58rem 0.9rem;
+  font-size: 0.8rem;
+}
+
+.status-pill,
+.badge.neutral {
+  background: rgba(15, 23, 42, 0.06);
+  color: #334155;
+}
+
+.badge.accent {
+  background: rgba(30, 41, 59, 0.08);
+  color: #0f172a;
+}
+
+.badge.warning {
+  background: rgba(180, 83, 9, 0.12);
+  color: #9a3412;
+}
+
+.badge.status-available,
+.badge.status-focused,
+.badge.status-coaching,
+.badge.status-vip {
+  background: rgba(15, 23, 42, 0.06);
+  color: #334155;
+}
+
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.segmented-control.compact {
+  padding: 4px;
+}
+
+.segmented-button,
+.soft-button,
+.primary-button,
+.pin-button {
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.segmented-button {
+  padding: 0.72rem 1rem;
+  background: transparent;
+  color: var(--muted);
+}
+
+.segmented-button.active {
+  background: #ffffff;
+  color: var(--text-strong);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.soft-button,
+.pin-button {
+  padding: 0.9rem 1rem;
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--text-strong);
+}
+
+.toggle-button.active,
+.pin-button.active {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+.primary-button {
+  padding: 0.95rem 1.2rem;
+  min-width: 170px;
+  background: linear-gradient(135deg, #0f172a, #334155);
+  color: #f8fafc;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+}
+
+.segmented-button:hover,
+.soft-button:hover,
+.primary-button:hover,
+.pin-button:hover,
+.ticket-card-button:hover,
+.knowledge-card:hover,
+.workflow-card:hover,
+.agent-card:hover,
+.mini-card:hover {
+  transform: translateY(-1px);
+}
+
+.delta {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.delta.up {
+  color: #166534;
+}
+
+.delta.down {
+  color: #b91c1c;
+}
+
+.ticket-board,
+.workflow-grid.single-column,
+.knowledge-grid.single-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.ticket-card-button {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ticket-card-button.active,
+.workflow-card.is-pinned {
+  border-color: rgba(15, 23, 42, 0.26);
+  background: #f1f5f9;
+}
+
+.empty-state {
+  padding: 22px;
+  border-radius: 22px;
+  background: #f8fafc;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+}
+
+.case-overview {
+  margin-top: 18px;
+}
+
+.case-meta-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.mini-stat-card {
+  padding: 16px;
+}
+
+.mini-stat-card strong {
+  margin-top: 6px;
+}
+
+.nested-heading {
+  margin-top: 22px;
+}
+
+.brief-output,
+.search-input,
+.composer-row textarea {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 20px;
+  background: #ffffff;
+  color: var(--text-strong);
+  font: inherit;
+  padding: 1rem 1.05rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.brief-output {
+  margin-top: 14px;
+  resize: vertical;
+  min-height: 220px;
+}
+
+.search-input {
+  max-width: 300px;
+}
+
+.composer-row {
+  align-items: flex-end;
+  margin-top: 18px;
+}
+
+.composer-row textarea {
+  resize: vertical;
+}
+
+.brief-output:focus,
+.search-input:focus,
+.composer-row textarea:focus {
+  border-color: rgba(15, 23, 42, 0.26);
+  box-shadow: 0 0 0 4px rgba(15, 23, 42, 0.05);
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tag-list span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.82rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--text-strong);
+  font-size: 0.86rem;
+}
+
+.chart-shell {
+  height: 240px;
+  margin-top: 18px;
+}
+
+.chart-shell.large-chart {
+  height: 320px;
+}
+
+.chart-shell.compact {
+  height: 230px;
+}
+
+.chart-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.journey-card {
+  min-height: 112px;
+}
+
+.journey-card strong {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 1.3rem;
+}
+
+.chat-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) 280px;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.chat-bubble {
+  max-width: 88%;
+  padding: 16px 18px;
+  border-radius: 24px;
+}
+
+.chat-bubble.customer {
+  align-self: flex-end;
+  background: linear-gradient(145deg, #0f172a, #334155);
+  color: #f8fafc;
+}
+
+.chat-bubble.assistant,
+.chat-bubble.agent,
+.chat-bubble.system {
+  align-self: flex-start;
+  background: #eef2f7;
+  color: var(--text-strong);
+}
+
+.chat-meta {
+  justify-content: flex-start;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+}
+
+.copilot-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.confidence-ring {
+  display: grid;
+  place-items: center;
+  width: 180px;
+  height: 180px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #ffffff 38%, transparent 39%),
+    conic-gradient(from 180deg, #0f172a, #475569, #cbd5e1, #0f172a);
+}
+
+.confidence-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #f8fafc;
+}
+
+.confidence-core strong {
+  font-size: 1.8rem;
+  color: var(--text-strong);
+}
+
+.info-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.intelligence-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 12px;
+}
+
+.activity-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.activity-dot.automation,
+.activity-dot.system {
+  background: #334155;
+}
+
+.activity-dot.human {
+  background: #b45309;
+}
+
+.activity-dot.knowledge {
+  background: #64748b;
+}
+
+.compact-mode {
+  gap: 16px;
+}
+
+.compact-mode .panel {
+  padding: 20px;
+  border-radius: 24px;
+}
+
+.compact-mode .hero-grid,
+.compact-mode .metrics-grid,
+.compact-mode .workspace-grid {
+  gap: 14px;
+}
+
+@media (max-width: 1260px) {
+  .hero-grid,
+  .intelligence-grid,
+  .chat-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .panel-span-7,
+  .panel-span-5,
+  .panel-span-12 {
+    grid-column: span 12;
+  }
+
+  .chart-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .app-shell {
+    padding: 18px;
+  }
+
+  .topbar-row,
+  .topbar-actions,
+  .section-heading-wrap,
+  .composer-row,
+  .chat-meta,
+  .ticket-title-row,
+  .ticket-meta-row,
+  .workflow-top,
+  .agent-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .metrics-grid,
+  .case-meta-grid,
+  .chart-summary-grid,
+  .intelligence-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .segmented-control {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .search-input {
+    max-width: none;
+  }
+
+  .chat-bubble {
+    max-width: 100%;
+  }
+
+  .primary-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .metrics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-score-card > strong {
+    font-size: 2.7rem;
+  }
+}

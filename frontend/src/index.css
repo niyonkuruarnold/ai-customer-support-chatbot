@@ -1,0 +1,74 @@
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --text-strong: #0f172a;
+  --text: #334155;
+  --muted: #64748b;
+  --brand: #334155;
+  --brand-strong: #0f172a;
+  --border: rgba(148, 163, 184, 0.24);
+  --shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+  font-family: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(51, 65, 85, 0.08), transparent 26%),
+    radial-gradient(circle at top right, rgba(148, 163, 184, 0.12), transparent 18%),
+    var(--bg);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+#root {
+  width: min(1500px, 100%);
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2.4rem, 4.2vw, 4.4rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+  color: var(--text-strong);
+}
+
+h2 {
+  font-size: 1.35rem;
+  color: var(--text-strong);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

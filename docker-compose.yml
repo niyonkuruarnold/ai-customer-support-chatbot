@@ -1,16 +1,28 @@
+<<<<<<< HEAD
+=======
+version: '3.8'
+>>>>>>> acc811384ffec57b834a51b9cfe1d759cdddcda5
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: chatbot_postgres
+<<<<<<< HEAD
     restart: unless-stopped
     environment:
       POSTGRES_DB: chatbot_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgrespassword
+=======
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_customer_support_chatbot
+>>>>>>> acc811384ffec57b834a51b9cfe1d759cdddcda5
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+<<<<<<< HEAD
       - ./scripts/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d chatbot_db"]
@@ -20,3 +32,7 @@ services:
 
 volumes:
   pgdata:
+=======
+volumes:
+  pgdata:
+>>>>>>> acc811384ffec57b834a51b9cfe1d759cdddcda5

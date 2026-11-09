@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 HELP.md
 node_modules/
 backend/dist
@@ -41,3 +42,69 @@ build/
 
 ### VS Code ###
 .vscode/
+=======
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Node.js / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Gradle
+.gradle/
+build/
+
+# Spring Boot
+application.properties.local
+application-local.properties
+*.log
+logs/
+
+# Environment variables (secrets — never commit). Keep .env.example tracked.
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Docker
+docker-compose.override.yml
+
+# Test artifacts
+/tmp/
+coverage/
+.nyc_output/
+frontend/.env
+>>>>>>> acc811384ffec57b834a51b9cfe1d759cdddcda5
